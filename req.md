@@ -38,17 +38,17 @@
 
 | Priority | Hex | Description |
 |----------|-----|-------------|
-| Major | `#355070` | Deep blue |
-| Big | `#6d597a` | Dusty purple |
-| Medium | `#b56576` | Dusty rose |
-| Minor | `#e56b6f` | Coral |
+| Major | `#E1523D` | Vermilion red |
+| Big | `#ED8B16` | Tangerine orange |
+| Medium | `#C2BB00` | Golden yellow |
+| Minor | `#005E54` | Deep teal |
 
 ```css
 :root {
-  --color-priority-major: #355070;
-  --color-priority-big: #6d597a;
-  --color-priority-medium: #b56576;
-  --color-priority-minor: #e56b6f;
+  --color-priority-major: #E1523D;
+  --color-priority-big: #ED8B16;
+  --color-priority-medium: #C2BB00;
+  --color-priority-minor: #005E54;
 }
 ```
 
@@ -122,6 +122,28 @@ Jan:5 Feb:4 Mar:4 Apr:5 May:4 Jun:5 Jul:4 Aug:5 Sep:4 Oct:5 Nov:4 Dec:5
 - **Cards**: Background `#F3F4F6`
 - **Transitions**: `cubic-bezier(0.34, 1.56, 0.64, 1)` for scale, 200-300ms
 
+### Node Hover Stability
+
+Node hover effects must use a **stable hitbox pattern** to prevent flickering caused by boundary shifts during scaling:
+
+- **Outer element (hitbox)**: Fixed 24×24px, handles positioning, rotation, and receives pointer events
+- **Inner element (visual)**: Performs visual transforms (scale, border color), has `pointer-events: none`
+
+```html
+<div class="node-hitbox">        <!-- stable 24×24, receives hover -->
+  <div class="node-visual">      <!-- scales 1.2×, no pointer events -->
+  </div>
+</div>
+```
+
+**Implementation requirements**:
+- The hitbox element must not change dimensions on hover
+- All visual transforms (scale, shadow, border) apply to the inner element only
+- `transform-origin: center` on the visual element ensures centered scaling
+- **SVG note**: Use `transform-box: fill-box` on the visual element so `transform-origin` references the element's bounding box, not the SVG canvas origin
+- **SVG note**: Set `pointer-events="all"` on hitbox rects with transparent fill to ensure cross-browser pointer event capture
+- Optional: Hitbox may extend 2-4px beyond visual bounds for easier targeting in dense node areas
+
 ### Priority Ranking
 
 When week has multiple events, node shows highest priority:
@@ -132,6 +154,12 @@ When week has multiple events, node shows highest priority:
 - Mouse-follow (12px offset right/below cursor)
 - Content: Week N, Month, Date range, Event list
 - Fade: 150ms
+
+**SVG implementation notes**:
+- Use event delegation on the SVG parent element, not individual node listeners
+- Use `mouseover`/`mouseout` (which bubble) instead of `mouseenter`/`mouseleave`
+- Use `element.closest('.node-hitbox')` to find the hovered node
+- Toggle visibility via CSS class (`.visible`), not inline styles
 
 ### Keyboard
 
@@ -180,6 +208,12 @@ Tooltip (floating, mouse-follow)
 |------------|--------|
 | >1024px | 25% sidebar / 75% canvas (sidebar: 280-360px) |
 | ≤1024px | 35vh top panel / 65vh canvas (vertical stack) |
+
+**Mobile optimizations (≤1024px)**:
+- Hide priority legend (colors visible on calendar nodes)
+- Reduce header padding (`p-4` instead of `p-6`)
+- Hide "Plan your 2026" subtitle
+- Smaller section header text (`text-xs` instead of `text-sm`)
 
 ---
 
@@ -232,8 +266,6 @@ Redis key `event_tracker_2026`:
 |------|---------|
 | `main.go` | Go server with embedded static files |
 | `index.html` | Frontend (Tailwind CDN, FontAwesome CDN) |
-| `Dockerfile` | Multi-stage Go build |
-| `fly.toml` | Fly.io config |
 | `TESTING.md` | Validation procedures |
 
 ### Environment
