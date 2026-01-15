@@ -44,15 +44,6 @@
 | Medium | `#C2BB00` | Golden yellow |
 | Minor | `#005E54` | Deep teal |
 
-```css
-:root {
-  --color-priority-major: #E1523D;
-  --color-priority-big: #ED8B16;
-  --color-priority-medium: #C2BB00;
-  --color-priority-minor: #005E54;
-}
-```
-
 ### Effects
 
 - **Modal overlay**: 40% white backdrop with `backdrop-blur(4px)`
@@ -113,7 +104,8 @@ Jan:5 Feb:4 Mar:4 Apr:5 May:4 Jun:5 Jul:4 Aug:5 Sep:4 Oct:5 Nov:4 Dec:5
 
 ### Center Hub
 
-- 112px diameter circle
+- 112px diameter circle, centered at SVG origin (350, 350)
+- **Positioning**: HTML overlay with `position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%)` inside a `position: relative` container
 - Gradient: white to `#F9FAFB`
 - Shadow: `inset 0 2px 8px rgba(0,0,0,0.06)`, ring `0 0 0 1px rgba(0,0,0,0.04)`
 - Content:
@@ -134,15 +126,8 @@ Jan:5 Feb:4 Mar:4 Apr:5 May:4 Jun:5 Jul:4 Aug:5 Sep:4 Oct:5 Nov:4 Dec:5
 
 Node hover effects must use a **stable hitbox pattern** to prevent flickering caused by boundary shifts during scaling:
 
-- **Outer element (hitbox)**: Fixed 36×36px (larger for touch), handles positioning, rotation, and receives pointer events
-- **Inner element (visual)**: 24×24px, performs visual transforms (scale, border color), has `pointer-events: none`
-
-```html
-<div class="node-hitbox">        <!-- stable 36×36, receives hover/touch -->
-  <div class="node-visual">      <!-- 24×24, scales 1.2×, no pointer events -->
-  </div>
-</div>
-```
+- **Outer element (hitbox)**: Fixed 36×36px, handles positioning/rotation, receives pointer events
+- **Inner element (visual)**: 24×24px, performs visual transforms, has `pointer-events: none`
 
 **Implementation requirements**:
 - The hitbox element must not change dimensions on hover
@@ -150,6 +135,7 @@ Node hover effects must use a **stable hitbox pattern** to prevent flickering ca
 - `transform-origin: center` on the visual element ensures centered scaling
 - **SVG note**: Use `transform-box: fill-box` on the visual element so `transform-origin` references the element's bounding box, not the SVG canvas origin
 - **SVG note**: Set `pointer-events="all"` on hitbox rects with transparent fill to ensure cross-browser pointer event capture
+- **SVG note**: Use `element.setAttribute('class', ...)` to reset classes on SVG elements. `element.className = ...` silently fails because SVG `className` is a read-only `SVGAnimatedString`
 - **Touch optimization**: Hitbox is 36×36px (12px larger than visual) for easier touch targeting
 
 ### Priority Ranking
@@ -286,85 +272,45 @@ Tooltip
 
 ---
 
-## 6. Data
+## 6. API Contract
 
-### Schema
+The frontend consumes these endpoints. See `backend.md` for server implementation details.
 
-Redis key `event_tracker_2026`:
+### Endpoints
+
+| Endpoint | Method | Request | Response |
+|----------|--------|---------|----------|
+| `/api/state` | GET | - | `{"events2026": [...]}` |
+| `/api/state` | POST | `{"events2026": [...]}` | `{"ok": true}` |
+
+### Event Schema
+
 ```json
 {
-  "events2026": [
-    {
-      "id": "evt_1704067200000",
-      "title": "Event Title",
-      "week": 12,
-      "priority": "major",
-      "description": "Optional"
-    }
-  ]
+  "id": "evt_1704067200000",
+  "title": "Event Title",
+  "week": 12,
+  "priority": "major",
+  "description": "Optional notes"
 }
 ```
 
-- `week: null` = backlog item
-- `priority`: major | big | medium | minor
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | string | Generated client-side: `evt_{timestamp}` |
+| `title` | string | Required |
+| `week` | number \| null | `1-52` = scheduled, `null` = backlog |
+| `priority` | string | `major` \| `big` \| `medium` \| `minor` |
+| `description` | string | Optional |
 
 ### Week Dates
 
 - Weeks start Monday; Week 1 contains Jan 1, 2026
-- Format: `"Feb 2-8"` or `"Jan 27 - Feb 2"` (cross-month)
+- Display format: `"Feb 2-8"` or `"Jan 27 - Feb 2"` (cross-month)
 
 ---
 
-## 7. API
-
-| Endpoint | Method | Response |
-|----------|--------|----------|
-| `/` | GET | `index.html` |
-| `/api/state` | GET | `{"events2026": [...]}` or `{"error": "..."}` |
-| `/api/state` | POST | `{"ok": true}` or `{"error": "..."}` |
-
-**Errors**: 400 invalid JSON, 400 body >1MB, 500 Redis unavailable
-
----
-
-## 8. Stack & Deployment
-
-### Files
-
-| File | Purpose |
-|------|---------|
-| `main.go` | Go server with embedded static files |
-| `index.html` | Frontend (Tailwind CDN, FontAwesome CDN) |
-| `TESTING.md` | Validation procedures |
-
-### Environment
-
-| Variable | Default | Notes |
-|----------|---------|-------|
-| `PORT` | `8080` | HTTP port |
-| `REDIS_URL` | `localhost:6379` | Without `redis://` prefix (code prepends it) |
-
-### Deploy to Fly.io
-
-```bash
-fly redis create                    # Note the URL
-fly secrets set REDIS_URL="default:pass@fly-xxx.upstash.io:6379"
-fly deploy
-```
-
-### Local Development
-
-```bash
-redis-server                        # Terminal 1
-go run main.go                      # Terminal 2
-# http://localhost:8080
-```
-
-See `TESTING.md` for validation procedures.
-
----
-
-## 9. Loading & Performance
+## 7. Loading & Performance
 
 ### Initialization Order
 
@@ -383,19 +329,7 @@ The page must feel instant. Render the static UI before fetching data:
 
 ### Static HTML Structure
 
-These elements must exist in the HTML markup, not be created by JavaScript:
-
-```html
-<svg id="calendar-svg" viewBox="0 0 700 700">
-  <g id="dividers"></g>
-  <g id="nodes"></g>
-  <g id="labels"></g>
-</svg>
-```
-
-The center hub may be either:
-- An SVG group built by JavaScript, or
-- An HTML div overlay (positioned absolutely over the SVG)
+The SVG element with empty `<g>` groups for dividers, nodes, and labels must exist in HTML markup. Center hub can be SVG or HTML overlay.
 
 ### Calendar Rendering
 

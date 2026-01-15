@@ -110,104 +110,24 @@ On each `POST /api/state`:
 
 **Important**: The frontend does NOT track `heyEventId`. It's managed entirely server-side.
 
-### Sync Algorithm
+### Sync State Transitions
 
-```go
-func syncHeyCalendar(heyClient *HeyClient, oldEvents, newEvents []Event, inviteEmail string) []Event {
-    // Build lookup maps
-    oldByID := make(map[string]Event)
-    for _, e := range oldEvents {
-        oldByID[e.ID] = e
-    }
+Build maps of old and new events by ID, then apply these rules:
 
-    newByID := make(map[string]Event)
-    for _, e := range newEvents {
-        newByID[e.ID] = e
-    }
-
-    // Process deletions: events in old but not in new
-    for _, old := range oldEvents {
-        if _, exists := newByID[old.ID]; !exists {
-            if old.HeyEventID != "" {
-                heyClient.DeleteEvent(old.HeyEventID)
-            }
-        }
-    }
-
-    // Process each new event
-    result := make([]Event, len(newEvents))
-    for i, new := range newEvents {
-        result[i] = new
-        old, existed := oldByID[new.ID]
-
-        wasScheduled := existed && old.Week != nil
-        isScheduled := new.Week != nil
-        weekChanged := wasScheduled && isScheduled && *old.Week != *new.Week
-
-        if weekChanged {
-            // Week changed: delete old, create new
-            if old.HeyEventID != "" {
-                heyClient.DeleteEvent(old.HeyEventID)
-            }
-            if isScheduled {
-                monday := weekToMonday(*new.Week)
-                friday := weekToFriday(*new.Week)
-                heyEventID, _ := heyClient.CreateEvent(CreateEventParams{
-                    Title:       new.Title,
-                    StartDate:   monday,
-                    EndDate:     friday,
-                    Description: new.Description,
-                    InviteEmail: inviteEmail,
-                })
-                result[i].HeyEventID = heyEventID
-            }
-        } else if !wasScheduled && isScheduled {
-            // Newly scheduled: create HEY event
-            monday := weekToMonday(*new.Week)
-            friday := weekToFriday(*new.Week)
-            heyEventID, _ := heyClient.CreateEvent(CreateEventParams{
-                Title:       new.Title,
-                StartDate:   monday,
-                EndDate:     friday,
-                Description: new.Description,
-                InviteEmail: inviteEmail,
-            })
-            result[i].HeyEventID = heyEventID
-        } else if wasScheduled && !isScheduled {
-            // Unscheduled: delete HEY event
-            if old.HeyEventID != "" {
-                heyClient.DeleteEvent(old.HeyEventID)
-            }
-            result[i].HeyEventID = ""
-        } else if wasScheduled && isScheduled {
-            // Still scheduled, same week: preserve heyEventId
-            result[i].HeyEventID = old.HeyEventID
-        }
-    }
-
-    return result
-}
-```
+| Old State | New State | Action |
+|-----------|-----------|--------|
+| Scheduled (week N) | Deleted | Delete HEY event |
+| Scheduled (week N) | Backlog (week null) | Delete HEY event, clear `heyEventId` |
+| Scheduled (week N) | Scheduled (week M, M≠N) | Delete old HEY event, create new |
+| Scheduled (week N) | Scheduled (week N) | Preserve `heyEventId` |
+| Backlog | Scheduled (week N) | Create HEY event, store `heyEventId` |
+| Backlog | Backlog | No action |
+| (new event) | Scheduled (week N) | Create HEY event, store `heyEventId` |
+| (new event) | Backlog | No action |
 
 ### Week → Date Mapping
 
-Events are created as all-day events spanning **Monday to Friday** of the assigned week.
-
-```go
-func weekToMonday(week int) time.Time {
-    // Jan 1, 2026 is Thursday
-    jan1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-    weekday := int(jan1.Weekday())
-    if weekday == 0 { weekday = 7 } // Sunday = 7
-    daysToMonday := weekday - 1
-    week1Monday := jan1.AddDate(0, 0, -daysToMonday)
-    return week1Monday.AddDate(0, 0, (week-1)*7)
-}
-
-func weekToFriday(week int) time.Time {
-    return weekToMonday(week).AddDate(0, 0, 4) // Monday + 4 days = Friday
-}
-```
+Events span **Monday to Friday** of the assigned week. Week 1 is the week containing Jan 1, 2026 (which is a Thursday). Find Week 1's Monday (Dec 29, 2025), then add `(week-1) * 7` days.
 
 ### Event Fields
 
@@ -218,43 +138,12 @@ When syncing to HEY Calendar:
 - **Description**: Event description wrapped in `<div>` tags
 - **Invite Email**: Configurable via `HEY_INVITE_EMAIL` env var (optional)
 
-### HEY Client
+### HEY Client Interface
 
-Import from subfolder (see `hey-library.md` for full implementation):
+Import `"calendar/hey"` and initialize with `hey.NewClient(email, password, calendarID, timezone)`. Methods used for sync:
 
-```go
-import "calendar/hey"
-
-// In main.go
-var heyClient *hey.Client
-
-func initHeyClient() {
-    if os.Getenv("HEY_SYNC_ENABLED") == "true" {
-        client, err := hey.NewClient(
-            os.Getenv("HEY_EMAIL"),
-            os.Getenv("HEY_PASSWORD"),
-            os.Getenv("HEY_CALENDAR_ID"),
-            os.Getenv("HEY_TIMEZONE"),
-        )
-        if err != nil {
-            log.Printf("HEY client init failed: %v", err)
-            return
-        }
-        heyClient = client
-    }
-}
-```
-
-Key types and methods from `hey` package:
-
-```go
-hey.Client
-hey.CreateEventParams{Title, StartDate, EndDate, Description, InviteEmail}
-hey.NewClient(email, password, calendarID, timezone) (*Client, error)
-client.CreateEvent(params) (eventID string, err error)
-client.UpdateEvent(eventID, params) error
-client.DeleteEvent(eventID) error
-```
+- `CreateEvent(CreateEventParams{Title, StartDate, EndDate, Description, InviteEmail})` → returns `eventID`
+- `DeleteEvent(eventID)` → removes event from HEY Calendar
 
 ---
 
@@ -309,22 +198,3 @@ fly secrets set HEY_SYNC_ENABLED=true
 fly secrets set HEY_INVITE_EMAIL=collaborator@example.com  # optional
 ```
 
----
-
-## 4. Implementation Status
-
-### Completed
-
-- [x] REST API endpoints (GET/POST `/api/state`)
-- [x] Redis state persistence
-- [x] Embedded `index.html` serving
-- [x] HEY Calendar sync on state changes
-- [x] Week → Monday date mapping
-- [x] HeyEventID tracking (server-side)
-- [x] Go integration tests
-
-### Future
-
-- [ ] Retry logic for failed syncs
-- [ ] Queue failed operations for retry
-- [ ] Health check endpoint

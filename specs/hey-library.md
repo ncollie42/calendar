@@ -19,24 +19,6 @@ calendar/
 │   └── client_test.go   # Integration tests
 ```
 
-### Package Declaration
-
-```go
-package hey
-
-import (
-    "fmt"
-    "io"
-    "net/http"
-    "net/http/cookiejar"
-    "net/url"
-    "regexp"
-    "strings"
-    "sync"
-    "time"
-)
-```
-
 ### Features
 - Authentication with bot detection bypass
 - Create, update, delete calendar events
@@ -150,29 +132,11 @@ re := regexp.MustCompile(`name="csrf-token"\s+content="([^"]+)"`)
 
 ### Cookie Handling
 
-When using `CheckRedirect: http.ErrUseLastResponse`, manually extract cookies:
-
-```go
-for _, cookie := range resp.Cookies() {
-    client.Jar.SetCookies(url, []*http.Cookie{cookie})
-}
-```
+When using `CheckRedirect: http.ErrUseLastResponse`, manually call `jar.SetCookies()` with `resp.Cookies()` after each request.
 
 ### Redirect URL Handling
 
-HEY returns **absolute URLs** in `Location` headers (e.g., `https://app.hey.com/calendar/weeks/2026-01-19`), not relative paths. When following redirects manually, check before prepending `baseURL`:
-
-```go
-location := resp.Header.Get("Location")
-var redirectURL string
-if strings.HasPrefix(location, "http") {
-    redirectURL = location  // Already absolute
-} else {
-    redirectURL = baseURL + location  // Relative path
-}
-```
-
-**CRITICAL**: Blindly concatenating `baseURL + location` produces malformed URLs like `https://app.hey.comhttps://app.hey.com/...`.
+HEY returns **absolute URLs** in `Location` headers. Check if Location starts with "http" before prepending baseURL, or you'll get malformed URLs like `https://app.hey.comhttps://app.hey.com/...`.
 
 ---
 
@@ -227,20 +191,6 @@ Content-Type: application/x-www-form-urlencoded
 | Multi-day | `2026-01-19` (Mon) | `2026-01-23` (Fri) | May have different HTML structure |
 
 **Recommendation**: Use **single-day events** for more reliable ID extraction. Multi-day events may render differently in the calendar HTML, causing extraction strategies to fail.
-
-```go
-// Single-day (recommended for reliable extraction)
-formData.Set("calendar_event[starts_at]", "2026-01-19")
-formData.Set("calendar_event[starts_at_time]", "9:00:00")
-formData.Set("calendar_event[ends_at]", "2026-01-19")      // Same date
-formData.Set("calendar_event[ends_at_time]", "10:00:00")
-
-// Multi-day (may cause extraction issues)
-formData.Set("calendar_event[starts_at]", "2026-01-19")    // Monday
-formData.Set("calendar_event[starts_at_time]", "0:00:00")
-formData.Set("calendar_event[ends_at]", "2026-01-23")      // Friday
-formData.Set("calendar_event[ends_at_time]", "0:00:00")
-```
 
 **Invites**: The `attendance_email_addresses[]` field sends a calendar invite to the specified email. Can include multiple by repeating the field.
 
@@ -397,17 +347,7 @@ return "", fmt.Errorf("could not find event with title %q", targetTitle)
 
 ### Graceful Failure
 
-ID extraction may fail even when the event was created successfully. Treat this as **non-fatal**:
-
-```go
-eventID, err := hc.extractEventID(dateStr, title)
-if err != nil {
-    log.Printf("Warning: event created but could not extract ID: %v", err)
-    return "", nil  // Return empty ID, not an error
-}
-```
-
-**Rationale**: The event exists in HEY Calendar; we just couldn't get its ID. The caller can still function without it (e.g., won't be able to update/delete, but sync continues).
+ID extraction may fail even when the event was created successfully. Treat this as **non-fatal**: log a warning and return empty ID (not an error). The event exists in HEY; we just can't track it for updates/deletes.
 
 ---
 
@@ -415,57 +355,11 @@ if err != nil {
 
 ### Client Structure
 
-```go
-type Client struct {
-    email      string
-    password   string
-    calendarID string
-    timezone   string
-    client     *http.Client  // with cookie jar
-    csrfToken  string
-    mu         sync.Mutex    // protect concurrent access
-}
+The `Client` holds credentials, calendarID, timezone, an `http.Client` with cookie jar (configured with `CheckRedirect: http.ErrUseLastResponse`), the current CSRF token, and a mutex for thread safety.
 
-const userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+`CreateEventParams` contains: Title, StartDate, EndDate (both `time.Time`), Description, InviteEmail.
 
-type CreateEventParams struct {
-    Title       string
-    StartDate   time.Time   // Monday of the week
-    EndDate     time.Time   // Friday of the week (for week-spanning events)
-    Description string      // HTML content, wrapped in <div>
-    InviteEmail string      // Email address to send invite to
-}
-```
-
-### Constructor
-
-```go
-func NewClient(email, password, calendarID, timezone string) (*Client, error) {
-    jar, _ := cookiejar.New(nil)
-
-    httpClient := &http.Client{
-        Jar:     jar,
-        Timeout: 30 * time.Second,
-        CheckRedirect: func(req *http.Request, via []*http.Request) error {
-            return http.ErrUseLastResponse  // Don't follow redirects
-        },
-    }
-
-    c := &Client{
-        email:      email,
-        password:   password,
-        calendarID: calendarID,
-        timezone:   timezone,
-        client:     httpClient,
-    }
-
-    if err := c.authenticate(); err != nil {
-        return nil, err
-    }
-
-    return c, nil
-}
-```
+`NewClient(email, password, calendarID, timezone)` creates the client and authenticates immediately.
 
 ### Gotchas & Key Learnings
 
@@ -491,92 +385,13 @@ func NewClient(email, password, calendarID, timezone string) (*Client, error) {
 
 ### Error Handling
 
-Check redirect location to distinguish success from auth failure:
-
-```go
-if resp.StatusCode == 302 {
-    location := resp.Header.Get("Location")
-    if strings.Contains(location, "sign_in") {
-        // Session expired - re-authenticate and retry
-        c.authenticate()
-        return c.RetryOperation()
-    }
-    // 302 to calendar page = success
-    return nil
-}
-```
+On HTTP 302, check if Location contains "sign_in" (session expired → re-authenticate and retry) vs calendar path (success).
 
 ---
 
 ## 8. Testing
 
-### Test File (`hey/client_test.go`)
-
-```go
-package hey
-
-import (
-    "fmt"
-    "os"
-    "testing"
-    "time"
-)
-
-func TestHeyAPI(t *testing.T) {
-    email := os.Getenv("HEY_EMAIL")
-    password := os.Getenv("HEY_PASSWORD")
-    calendarID := os.Getenv("HEY_CALENDAR_ID")
-
-    if email == "" || password == "" || calendarID == "" {
-        t.Skip("HEY credentials not set")
-    }
-
-    var client *Client
-    var eventID string
-    testTitle := fmt.Sprintf("Test_%d", time.Now().Unix())
-    testDate := time.Now().AddDate(0, 0, 7)
-
-    t.Run("1_Login", func(t *testing.T) {
-        var err error
-        client, err = NewClient(email, password, calendarID, "Pacific Time (US & Canada)")
-        if err != nil {
-            t.Fatalf("Login failed: %v", err)
-        }
-    })
-
-    t.Run("2_CreateEvent", func(t *testing.T) {
-        var err error
-        eventID, err = client.CreateEvent(CreateEventParams{
-            Title:     testTitle,
-            StartDate: testDate,
-            EndDate:   testDate.AddDate(0, 0, 4), // Mon-Fri
-        })
-        if err != nil {
-            t.Fatalf("CreateEvent failed: %v", err)
-        }
-    })
-
-    t.Run("3_UpdateEvent", func(t *testing.T) {
-        err := client.UpdateEvent(eventID, CreateEventParams{
-            Title:     testTitle + "_Updated",
-            StartDate: testDate,
-            EndDate:   testDate.AddDate(0, 0, 4),
-        })
-        if err != nil {
-            t.Fatalf("UpdateEvent failed: %v", err)
-        }
-    })
-
-    t.Run("4_DeleteEvent", func(t *testing.T) {
-        err := client.DeleteEvent(eventID)
-        if err != nil {
-            t.Fatalf("DeleteEvent failed: %v", err)
-        }
-    })
-}
-```
-
-### Run Tests
+Run integration tests (requires HEY credentials):
 
 ```bash
 cd hey
@@ -585,6 +400,8 @@ HEY_PASSWORD=yourpass \
 HEY_CALENDAR_ID=486638 \
 go test -v
 ```
+
+Tests cover: login, create event, update event, delete event (sequential, each depends on previous).
 
 ---
 

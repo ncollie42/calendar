@@ -30,7 +30,6 @@ When generating code from specs, follow this order (due to dependencies):
 - `index.html` - Frontend implementation
 - `main.go` - Backend server
 - `hey/` - HEY Calendar client library
-- `TESTING.md` - Validation procedures
 
 ### Environment:
 - `env` - Local environment variables for development. Source with `source env` before running.
