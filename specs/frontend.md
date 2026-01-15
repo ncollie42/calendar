@@ -18,6 +18,7 @@
 
 - **Font**: Inter (Google Fonts)
 - **Weights**: Bold (700) titles, Medium (500) labels, Regular (400) body
+- **Loading**: Only load weights 400, 500, 700 with `display=swap`
 
 ### Color Palette
 
@@ -64,8 +65,12 @@
 
 ### Canvas
 
-- Fixed 700×700px grid, center at (350, 350)
-- Scales via CSS `transform: scale(min(1, (containerSize - 40) / 700))`
+- SVG viewBox is fixed at 700×700, center at (350, 350)
+- **Responsive sizing**: Container uses CSS to scale proportionally
+  - Desktop (>1024px): `max-width: 700px`, centered in canvas area
+  - Mobile (≤1024px): `width: min(100vw - 32px, 100vh - 32px)` to fit viewport with 16px padding on each side
+  - Aspect ratio maintained via `aspect-ratio: 1` on container
+  - SVG fills container with `width: 100%; height: 100%`
 
 ### Month Spokes
 
@@ -97,7 +102,8 @@ Jan:5 Feb:4 Mar:4 Apr:5 May:4 Jun:5 Jul:4 Aug:5 Sep:4 Oct:5 Nov:4 Dec:5
 
 - Position: `OUTER_RADIUS + 40px` from center
 - Rotation: `angleDeg + 90`, add 180° if `angleDeg` between 0-180 (bottom half)
-- Style: Uppercase, 500 weight, `#9CA3AF`
+- Style: Uppercase, semi-bold (600 weight), `#6B7280`
+- Mobile: 14px font size; Desktop: 12px font size
 
 ### Month Dividers
 
@@ -110,7 +116,9 @@ Jan:5 Feb:4 Mar:4 Apr:5 May:4 Jun:5 Jul:4 Aug:5 Sep:4 Oct:5 Nov:4 Dec:5
 - 112px diameter circle
 - Gradient: white to `#F9FAFB`
 - Shadow: `inset 0 2px 8px rgba(0,0,0,0.06)`, ring `0 0 0 1px rgba(0,0,0,0.04)`
-- Content: "2026" bold, "52 WEEKS" or event count below
+- Content:
+  - Top line: "2026" (bold)
+  - Bottom line: "Week X of 52" (current week progress)
 
 ---
 
@@ -126,12 +134,12 @@ Jan:5 Feb:4 Mar:4 Apr:5 May:4 Jun:5 Jul:4 Aug:5 Sep:4 Oct:5 Nov:4 Dec:5
 
 Node hover effects must use a **stable hitbox pattern** to prevent flickering caused by boundary shifts during scaling:
 
-- **Outer element (hitbox)**: Fixed 24×24px, handles positioning, rotation, and receives pointer events
-- **Inner element (visual)**: Performs visual transforms (scale, border color), has `pointer-events: none`
+- **Outer element (hitbox)**: Fixed 36×36px (larger for touch), handles positioning, rotation, and receives pointer events
+- **Inner element (visual)**: 24×24px, performs visual transforms (scale, border color), has `pointer-events: none`
 
 ```html
-<div class="node-hitbox">        <!-- stable 24×24, receives hover -->
-  <div class="node-visual">      <!-- scales 1.2×, no pointer events -->
+<div class="node-hitbox">        <!-- stable 36×36, receives hover/touch -->
+  <div class="node-visual">      <!-- 24×24, scales 1.2×, no pointer events -->
   </div>
 </div>
 ```
@@ -142,18 +150,54 @@ Node hover effects must use a **stable hitbox pattern** to prevent flickering ca
 - `transform-origin: center` on the visual element ensures centered scaling
 - **SVG note**: Use `transform-box: fill-box` on the visual element so `transform-origin` references the element's bounding box, not the SVG canvas origin
 - **SVG note**: Set `pointer-events="all"` on hitbox rects with transparent fill to ensure cross-browser pointer event capture
-- Optional: Hitbox may extend 2-4px beyond visual bounds for easier targeting in dense node areas
+- **Touch optimization**: Hitbox is 36×36px (12px larger than visual) for easier touch targeting
 
 ### Priority Ranking
 
 When week has multiple events, node shows highest priority:
 1. Major → 2. Big → 3. Medium → 4. Minor
 
+### Current Week Indicator
+
+**Visual treatment:**
+- **Current week node**: Thicker border (3px) in `#111827` (text-primary black)
+  - Applies regardless of whether node has event fill or is empty
+  - Border color remains constant, does not change with priority color
+- **Past weeks**: Rendered at 65% opacity (both empty and filled nodes)
+- **Future weeks**: Full opacity (100%)
+
+**Week calculation:**
+- Uses same week numbering as events: Week 1 contains Jan 1, weeks start Monday
+- Calculated client-side from `new Date()`
+- Updates on page load (not real-time at midnight)
+
+**Center hub integration:**
+- Bottom line displays "Week X of 52" where X is current week number
+- Replaces previous "52 WEEKS" / event count display
+
+### Node Click/Tap Behavior
+
+**Desktop (pointer: fine)**:
+- Clicking a node opens the event creation modal with that week pre-selected
+
+**Touch devices (pointer: coarse)**:
+- Tapping a node shows the tooltip (same content as hover: week info, date range, event list)
+- Tooltip anchored near the tapped node (not mouse-follow)
+- Tap anywhere to dismiss (including tapping the same node again)
+- Event creation on touch devices is via the "Add Event" button only
+
+**Implementation**: Use event delegation on the SVG element with separate listeners for touch and mouse:
+- `touchstart` on SVG → if target is node, show tooltip and call `preventDefault()` to block click
+- `click` on SVG → if target is node, open modal (only fires on non-touch since touch prevents it)
+- `touchstart` on document → dismiss tooltip if tap is outside a node
+
+Using `touchstart` (not `touchend`) is more reliable for SVG elements. The `{ passive: false }` option is required for `preventDefault()` to work.
+
 ### Tooltips
 
-- Mouse-follow (12px offset right/below cursor)
+- **Desktop**: Mouse-follow (12px offset right/below cursor), fade 150ms
+- **Touch**: Anchored near tapped node (centered above or below based on screen position), persists until dismissed
 - Content: Week N, Month, Date range, Event list
-- Fade: 150ms
 
 **SVG implementation notes**:
 - Use event delegation on the SVG parent element, not individual node listeners
@@ -173,14 +217,17 @@ When week has multiple events, node shows highest priority:
 
 ```
 Sidebar
-├── Header ("Event Tracker" / "Plan your 2026")
-├── Add Event Button (+ keyboard shortcut badge)
+├── Header
+│   ├── Back Button (mobile only, hidden on desktop)
+│   ├── "Event Tracker" title
+│   └── "Plan your 2026" subtitle (desktop only)
+├── Add Event Button (+ keyboard shortcut badge on desktop)
 ├── Scheduled Events (collapsible, default: expanded)
 │   └── Event cards sorted by week, then priority
 ├── ── [divider] ──
 ├── Backlog (collapsible, default: collapsed)
 │   └── Unscheduled event cards
-└── Priority Legend
+└── Priority Legend (desktop only)
 
 Canvas
 ├── Month Divider Lines (SVG, z-index: 0)
@@ -188,10 +235,15 @@ Canvas
 ├── Month Labels (rotated text)
 └── Center Hub
 
+Floating Action Button (mobile only)
+└── Opens events view from calendar view
+
 Modal
 └── Event Form (title, week select, priority, description, delete)
 
-Tooltip (floating, mouse-follow)
+Tooltip
+├── Desktop: floating, mouse-follow
+└── Touch: anchored near node, tap to dismiss
 ```
 
 ### Collapsible Sections
@@ -207,13 +259,30 @@ Tooltip (floating, mouse-follow)
 | Breakpoint | Layout |
 |------------|--------|
 | >1024px | 25% sidebar / 75% canvas (sidebar: 280-360px) |
-| ≤1024px | 35vh top panel / 65vh canvas (vertical stack) |
+| ≤1024px | Full-screen toggle views (calendar or events) |
 
-**Mobile optimizations (≤1024px)**:
+**Mobile layout (≤1024px)**:
+- **Two full-screen views** that toggle (CSS classes `mobile-view-calendar`, `mobile-view-events` on `#app`):
+  - **Calendar view** (default): Full-screen radial calendar
+  - **Events view**: Full-screen sidebar (Add Event, Scheduled, Backlog)
+
+**Mobile navigation elements**:
+- **Floating action button** (calendar view): Fixed position bottom-right, 56×56px dark rounded button with list icon, opens events view
+  - Positioned with safe area insets: `bottom: max(1.5rem, env(safe-area-inset-bottom) + 1rem)`
+- **Back button** (events view): In sidebar header, arrow-left icon, returns to calendar view
+
+**Mobile visual adjustments**:
 - Hide priority legend (colors visible on calendar nodes)
 - Reduce header padding (`p-4` instead of `p-6`)
 - Hide "Plan your 2026" subtitle
 - Smaller section header text (`text-xs` instead of `text-sm`)
+- Larger month labels (14px vs 12px on desktop)
+- Larger touch targets on nodes (36px hitbox vs 24px visual)
+
+**Safe area support**:
+- Viewport meta: `viewport-fit=cover`
+- Floating button uses `env(safe-area-inset-bottom)` and `env(safe-area-inset-right)`
+- SVG has `touch-action: manipulation` for reliable touch events
 
 ---
 
@@ -292,3 +361,55 @@ go run main.go                      # Terminal 2
 ```
 
 See `TESTING.md` for validation procedures.
+
+---
+
+## 9. Loading & Performance
+
+### Initialization Order
+
+The page must feel instant. Render the static UI before fetching data:
+
+1. **Immediate** (on DOMContentLoaded, no await):
+   - Render empty calendar structure (nodes, labels, dividers, hub)
+   - Populate week select dropdown
+   - Setup event listeners
+   - Restore collapse state from localStorage
+
+2. **Async** (after calendar is visible):
+   - Fetch `/api/state`
+   - Update node colors based on events
+   - Render event lists in sidebar
+
+### Static HTML Structure
+
+These elements must exist in the HTML markup, not be created by JavaScript:
+
+```html
+<svg id="calendar-svg" viewBox="0 0 700 700">
+  <g id="dividers"></g>
+  <g id="nodes"></g>
+  <g id="labels"></g>
+</svg>
+```
+
+The center hub may be either:
+- An SVG group built by JavaScript, or
+- An HTML div overlay (positioned absolutely over the SVG)
+
+### Calendar Rendering
+
+The `buildCalendar()` / `renderCalendar()` function must:
+1. Run synchronously (no awaits)
+2. Complete before any API calls
+3. Display a fully-formed but empty calendar
+
+Node colors and event data are applied separately via `updateNodes()` after the API responds.
+
+### Error Handling
+
+If `/api/state` fails or times out:
+- Calendar remains visible with empty (white) nodes
+- Sidebar shows empty event lists
+- No error modal or blocking UI
+- Console logs the error for debugging
