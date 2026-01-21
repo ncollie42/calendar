@@ -12,6 +12,8 @@ Go server for the 2026 Planning Calendar with optional HEY Calendar sync.
 calendar/
 ├── main.go              # Server, imports "calendar/hey"
 ├── index.html           # Embedded frontend
+├── manifest.json        # PWA manifest (embedded)
+├── sw.js                # Service worker (embedded)
 ├── hey/
 │   ├── client.go        # HEY client (see hey-library.md)
 │   ├── events.go        # Create/Update/Delete
@@ -20,7 +22,7 @@ calendar/
 
 ### Go Server (`main.go`)
 
-Single binary with embedded `index.html`. Stores all state in Redis. Imports HEY client from `hey/` subfolder.
+Single binary with embedded `index.html`, `manifest.json`, and `sw.js`. Stores all state in Redis. Imports HEY client from `hey/` subfolder. Dynamically generates PWA icons.
 
 ### Endpoints
 
@@ -29,6 +31,10 @@ Single binary with embedded `index.html`. Stores all state in Redis. Imports HEY
 | `/` | GET | Serve `index.html` |
 | `/api/state` | GET | Return full state `{"events2026": [...]}` |
 | `/api/state` | POST | Save full state (replaces all events, syncs to HEY) |
+| `/manifest.json` | GET | PWA manifest |
+| `/sw.js` | GET | Service worker |
+| `/icon-192.png` | GET | PWA icon (192×192, generated) |
+| `/icon-512.png` | GET | PWA icon (512×512, generated) |
 
 ### Data Model
 

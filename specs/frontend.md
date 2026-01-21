@@ -257,6 +257,13 @@ Tooltip
   - Positioned with safe area insets: `bottom: max(1.5rem, env(safe-area-inset-bottom) + 1rem)`
 - **Back button** (events view): In sidebar header, arrow-left icon, returns to calendar view
 
+**History API integration** (for back gesture/button support):
+- Opening events view pushes state to history: `history.pushState({ view: 'events' }, '', '#events')`
+- Back button in header calls `history.back()` instead of directly switching views
+- `popstate` event listener returns to calendar view when back is triggered
+- On page load, if URL hash is `#events`, show events view
+- This prevents the PWA from closing when user presses back in events view—it returns to calendar first
+
 **Mobile visual adjustments**:
 - Hide priority legend (colors visible on calendar nodes)
 - Reduce header padding (`p-4` instead of `p-6`)
@@ -347,3 +354,70 @@ If `/api/state` fails or times out:
 - Sidebar shows empty event lists
 - No error modal or blocking UI
 - Console logs the error for debugging
+
+---
+
+## 8. Progressive Web App (PWA)
+
+The app is installable as a PWA for a native app-like experience on mobile and desktop.
+
+### Manifest
+
+File: `/manifest.json`
+
+```json
+{
+  "name": "Event Tracker 2026",
+  "short_name": "Tracker",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F9FAFB",
+  "theme_color": "#111827",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
+```
+
+### Service Worker
+
+File: `/sw.js`
+
+Minimal service worker that registers but does not cache. Required for PWA install prompt.
+
+```javascript
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', () => self.clients.claim());
+```
+
+### Icons
+
+- `/icon-192.png` and `/icon-512.png`: Solid `#111827` (theme color) squares
+- Generated dynamically by the server (no static files needed)
+
+### HTML Head Tags
+
+```html
+<meta name="theme-color" content="#111827">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+```
+
+### Service Worker Registration
+
+```javascript
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js');
+}
+```
+
+### PWA Features Enabled
+
+| Feature | Status |
+|---------|--------|
+| Add to Home Screen | Yes |
+| Standalone display (no browser chrome) | Yes |
+| Theme color in status bar | Yes |
+| Offline support | No (online-only) |
+| Background sync | No |

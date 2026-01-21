@@ -2,3 +2,10 @@ hey
 env
 main.go
 server
+.DS_Store
+future.md
+go.mod
+go.sum
+index.html
+manifest.json
+sw.js

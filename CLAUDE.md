@@ -40,3 +40,10 @@ redis-server                  # Terminal 1
 source env && go run main.go  # Terminal 2
 # Open http://localhost:8080
 ```
+
+## Coding Practices
+
+### Defensive Programming
+Assert aggressively. If an assumption could be wrong, assert it—inputs non-nil, values in range, invariants hold.
+
+The goal: if your mental model of the code is wrong, it crashes immediately at the violation, not later with corrupted state. When something crashes, work up the stack adding assertions that would have caught it earlier. The assertions are the spec.
