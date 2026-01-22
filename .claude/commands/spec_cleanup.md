@@ -25,7 +25,6 @@ Ask: "If someone implements from the new spec, will they produce the same behavi
 ## Specs to analyze
 - `specs/frontend.md` - Frontend design specification
 - `specs/backend.md` - Backend server specification
-- `specs/hey-library.md` - HEY Calendar library specification
 
 ## Check for dead documentation
 

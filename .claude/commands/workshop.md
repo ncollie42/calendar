@@ -7,7 +7,6 @@ Include the relevant spec file(s) using @ syntax (e.g., `@specs/backend.md`).
 Available specs:
 - `specs/frontend.md` - Frontend design specification
 - `specs/backend.md` - Backend server specification
-- `specs/hey-library.md` - HEY Calendar library specification
 
 Before drafting the update:
 1. Ask me clarifying questions about the unclear areas you've identified

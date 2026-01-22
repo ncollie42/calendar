@@ -1,4 +1,3 @@
-hey
 env
 main.go
 server
@@ -9,3 +8,11 @@ go.sum
 index.html
 manifest.json
 sw.js
+node_modules/
+package-lock.json
+
+.env.local
+convex/_generated
+dump.rdb
+convex
+package.json
