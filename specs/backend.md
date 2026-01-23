@@ -183,13 +183,243 @@ Note: `bunx convex dev` reads from `.env.local`. The Convex URL in `src/main.tsx
 
 ## 7. Testing
 
+### Test Architecture
+
+The project uses **two test runners** due to runtime requirements:
+
+| Runner | Environment | Tests | Why |
+|--------|-------------|-------|-----|
+| `bun test` | Bun runtime | Server endpoints | Requires `Bun.serve()`, `Bun.build()` APIs |
+| `vitest` | edge-runtime | Convex functions | Required by `convex-test` library |
+
+### Dependencies
+
+```json
+"devDependencies": {
+  "@edge-runtime/vm": "^4.0.0",
+  "convex-test": "^0.0.35",
+  "vitest": "^3.0.0"
+}
+```
+
+### Configuration
+
+**vitest.config.ts:**
+```typescript
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    environment: "edge-runtime",
+    server: { deps: { inline: ["convex-test"] } },
+    include: ["convex/**/*.test.ts"],
+  },
+});
+```
+
+**convex/test.setup.ts:**
+```typescript
+export const modules = import.meta.glob("./**/!(*.*.*)*.*s");
+```
+
+### Server Testability Pattern
+
+The server exports a `createServer()` function for testing:
+
+```typescript
+export function createServer(port: number = PORT) {
+  const server = Bun.serve({ port, fetch(req) { ... } });
+  return server;
+}
+
+// Only start if run directly (not imported)
+if (import.meta.main) {
+  const server = createServer();
+  console.log(`Server running at http://localhost:${server.port}`);
+}
+```
+
+Key patterns:
+- `import.meta.main` is `true` only when file is the entry point
+- Port 0 lets OS assign available port (avoids conflicts)
+- Server object has `.port` and `.stop()` for test lifecycle
+
+### Server Tests
+
+**tests/server.test.ts:**
+```typescript
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { createServer } from "../server";
+
+describe("server endpoints", () => {
+  let server: ReturnType<typeof createServer>;
+  let baseUrl: string;
+
+  beforeAll(() => {
+    server = createServer(0);
+    baseUrl = `http://localhost:${server.port}`;
+  });
+
+  afterAll(() => {
+    server.stop();
+  });
+
+  test("GET / returns HTML", async () => {
+    const res = await fetch(`${baseUrl}/`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/html");
+    expect(await res.text()).toContain("<!DOCTYPE html>");
+  });
+
+  test("GET /src/main.tsx returns bundled JS", async () => {
+    const res = await fetch(`${baseUrl}/src/main.tsx`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/javascript");
+  });
+
+  test("GET /styles.css returns CSS", async () => {
+    const res = await fetch(`${baseUrl}/styles.css`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("text/css");
+  });
+
+  test("GET /manifest.json returns PWA manifest", async () => {
+    const res = await fetch(`${baseUrl}/manifest.json`);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toHaveProperty("name");
+  });
+
+  test("GET /sw.js returns service worker", async () => {
+    const res = await fetch(`${baseUrl}/sw.js`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/javascript");
+  });
+
+  test("GET /icon-192.png returns valid PNG", async () => {
+    const res = await fetch(`${baseUrl}/icon-192.png`);
+    expect(res.status).toBe(200);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect(bytes.slice(0, 4)).toEqual(new Uint8Array([137, 80, 78, 71]));
+  });
+
+  test("GET /icon-512.png returns valid PNG", async () => {
+    const res = await fetch(`${baseUrl}/icon-512.png`);
+    expect(res.status).toBe(200);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect(bytes.slice(0, 4)).toEqual(new Uint8Array([137, 80, 78, 71]));
+  });
+
+  test("GET /nonexistent returns 404", async () => {
+    const res = await fetch(`${baseUrl}/nonexistent`);
+    expect(res.status).toBe(404);
+  });
+});
+```
+
+### Convex Tests
+
+**convex/events.test.ts:**
+```typescript
+import { convexTest } from "convex-test";
+import { describe, test, expect } from "vitest";
+import { api } from "./_generated/api";
+import schema from "./schema";
+import { modules } from "./test.setup";
+
+describe("events", () => {
+  test("createEvent returns ID", async () => {
+    const t = convexTest(schema, modules);
+    const eventId = await t.mutation(api.events.createEvent, {
+      title: "Test Event",
+      week: 5,
+      priority: "major",
+    });
+    expect(eventId).toBeDefined();
+  });
+
+  test("createEvent and getEvents", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(api.events.createEvent, {
+      title: "Test Event",
+      week: 5,
+      priority: "major",
+    });
+    const events = await t.query(api.events.getEvents);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ title: "Test Event", week: 5 });
+  });
+
+  test("updateEvent modifies fields", async () => {
+    const t = convexTest(schema, modules);
+    const eventId = await t.mutation(api.events.createEvent, {
+      title: "Original",
+      week: 1,
+      priority: "minor",
+    });
+    await t.mutation(api.events.updateEvent, {
+      eventId,
+      title: "Updated",
+      priority: "major",
+    });
+    const events = await t.query(api.events.getEvents);
+    expect(events[0]).toMatchObject({ title: "Updated", priority: "major", week: 1 });
+  });
+
+  test("deleteEvent removes event", async () => {
+    const t = convexTest(schema, modules);
+    const eventId = await t.mutation(api.events.createEvent, {
+      title: "To Delete",
+      week: null,
+      priority: "medium",
+    });
+    expect(await t.query(api.events.getEvents)).toHaveLength(1);
+    await t.mutation(api.events.deleteEvent, { eventId });
+    expect(await t.query(api.events.getEvents)).toHaveLength(0);
+  });
+});
+```
+
+### Running Tests
+
+```bash
+bun run test          # Run all tests (Convex + Server)
+bun run test:convex   # Run only Convex tests (vitest)
+bun run test:server   # Run only server tests (bun test)
+bun run test:watch    # Watch mode for Convex tests
+```
+
+### Lessons Learned
+
+**Friction 1: Two test runners required**
+- `convex-test` requires Vitest with edge-runtime environment
+- Server tests require Bun APIs (`Bun.serve`, `Bun.build`) unavailable in edge-runtime
+- Solution: Run `vitest` for Convex, `bun test` for server, combine in `test` script
+
+**Friction 2: CONVEX_URL undefined in tests**
+- `Bun.build({ define: { "process.env.CONVEX_URL": JSON.stringify(undefined) } })` throws
+- Solution: Conditionally add define only when env var exists:
+  ```typescript
+  const define: Record<string, string> = {};
+  if (process.env.CONVEX_URL) {
+    define["process.env.CONVEX_URL"] = JSON.stringify(process.env.CONVEX_URL);
+  }
+  ```
+
+**Friction 3: Import side effects**
+- Original server started on import, breaking test isolation
+- Solution: `import.meta.main` guard pattern (Bun/Deno standard)
+
+**Friction 4: Port conflicts in parallel tests**
+- Solution: Use port 0 for OS-assigned ports, read `server.port` after start
+
 ### API Testing (via Convex Dashboard)
 
 1. Go to https://dashboard.convex.dev
 2. Select your project
 3. Use the "Functions" tab to test queries/mutations
 
-### Local Testing
+### Manual Verification
 
 ```bash
 # Development mode
