@@ -27,7 +27,10 @@ calendar/
 │   └── sw.js            # Service worker
 ├── convex/
 │   ├── schema.ts        # Database schema
-│   └── events.ts        # Event CRUD functions
+│   ├── events.ts        # Event CRUD functions
+│   ├── calendars.ts     # Calendar queries and mutations
+│   ├── shareLinks.ts    # Share link management
+│   └── users.ts         # User setup functions
 └── dist/                # Production build output
 ```
 
@@ -80,10 +83,30 @@ Note: This is basic cache invalidation, not HMR. Browser refresh required after 
 ```typescript
 // convex/schema.ts
 import { defineSchema, defineTable } from "convex/server";
+import { authTables } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  ...authTables,
+
+  calendars: defineTable({
+    name: v.string(),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+  }).index("by_createdBy", ["createdBy"]),
+
+  memberships: defineTable({
+    calendarId: v.id("calendars"),
+    userId: v.id("users"),
+    role: v.union(v.literal("owner"), v.literal("member")),
+    joinedAt: v.number(),
+  })
+    .index("by_userId", ["userId"])
+    .index("by_calendarId", ["calendarId"])
+    .index("by_userId_calendarId", ["userId", "calendarId"]),
+
   events: defineTable({
+    calendarId: v.id("calendars"),
     title: v.string(),
     week: v.union(v.number(), v.null()),
     priority: v.union(
@@ -93,8 +116,21 @@ export default defineSchema({
       v.literal("minor")
     ),
     description: v.optional(v.string()),
+    participants: v.optional(v.array(v.id("users"))),
+    createdBy: v.id("users"),
     createdAt: v.number(),
-  }),
+  }).index("by_calendarId", ["calendarId"]),
+
+  shareLinks: defineTable({
+    calendarId: v.id("calendars"),
+    token: v.string(),
+    permission: v.union(v.literal("view"), v.literal("invite")),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_token", ["token"])
+    .index("by_calendarId", ["calendarId"]),
 });
 ```
 
@@ -106,15 +142,24 @@ export default defineSchema({
 
 | Function | Args | Returns | Purpose |
 |----------|------|---------|---------|
-| `getEvents` | - | `Event[]` | Get all events |
+| `events.getEvents` | `calendarId, shareToken?` | `Event[]` | Get all events for a calendar (auth or share token) |
+| `calendars.getMyCalendars` | - | `Calendar[]` | Get all calendars user is member of (with role) |
+| `calendars.getPrimaryCalendar` | - | `Calendar \| null` | Get user's primary owned calendar |
+| `shareLinks.getCalendarShareLinks` | `calendarId` | `ShareLink[]` | Get all share links for a calendar |
+| `shareLinks.getCalendarByToken` | `token` | `{calendar, events} \| null` | Public: get calendar data by share token |
 
 ### Mutations
 
 | Function | Args | Returns | Purpose |
 |----------|------|---------|---------|
-| `createEvent` | `title, week, priority, description?` | `eventId` | Create event |
-| `updateEvent` | `eventId, updates` | - | Update event |
-| `deleteEvent` | `eventId` | - | Delete event |
+| `events.createEvent` | `calendarId, title, week, priority, description?` | `eventId` | Create event |
+| `events.updateEvent` | `eventId, updates` | - | Update event |
+| `events.deleteEvent` | `eventId` | - | Delete event |
+| `calendars.createCalendar` | `name` | `calendarId` | Create calendar + owner membership |
+| `calendars.deleteCalendar` | `calendarId` | - | Delete calendar (owner only, cascades) |
+| `shareLinks.createShareLink` | `calendarId, permission` | `linkId` | Generate share link (12-char base62 token) |
+| `shareLinks.revokeShareLink` | `linkId` | - | Soft-delete by setting revokedAt |
+| `shareLinks.joinViaInviteLink` | `token` | `membershipId` | Join calendar via invite link |
 
 ---
 
@@ -488,10 +533,10 @@ TypeScript compilation depends on Convex generated files:
 
 CI/CD pipelines must run codegen before type checking.
 
-### Future: Authentication
+### Authentication
 
-Authentication is deferred to a future phase. When added:
-- Add `@convex-dev/auth` tables via `authTables` spread
-- Add `createdBy: v.id("users")` to events
-- Add `calendars` and `memberships` tables for multi-user support
-- Add auth checks to all mutations
+Authentication uses `@convex-dev/auth` with Google OAuth:
+- Auth tables added via `authTables` spread in schema
+- All events have `createdBy: v.id("users")`
+- Multi-calendar support via `calendars` and `memberships` tables
+- All mutations verify user membership before allowing changes

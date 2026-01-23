@@ -153,7 +153,9 @@ When week has multiple events, node shows highest priority:
 - **Future weeks**: Full opacity (100%)
 
 **Week calculation:**
-- Uses same week numbering as events: Week 1 contains Jan 1, weeks start Monday
+- ISO-style weeks: Monday-aligned, Week 1 contains January 1st
+- For 2026: Week 1 starts Dec 29, 2025 (the Monday of the week containing Jan 1)
+- Week number = `Math.floor(daysSinceWeek1Start / 7) + 1`
 - Calculated client-side from `new Date()`
 - Updates on page load (not real-time at midnight)
 
@@ -205,7 +207,14 @@ Using `touchstart` (not `touchend`) is more reliable for SVG elements. The `{ pa
 Sidebar
 ├── Header
 │   ├── Back Button (mobile only, hidden on desktop)
-│   ├── "Event Tracker" title
+│   ├── Calendar Dropdown (replaces "Event Tracker" title)
+│   │   ├── Current calendar name with chevron
+│   │   ├── Dropdown menu:
+│   │   │   ├── Calendar list (name + role badge)
+│   │   │   ├── Divider
+│   │   │   ├── Create Calendar (inline input)
+│   │   │   └── Delete Calendar (owner only, confirmation)
+│   │   └── Share button (opens ShareModal)
 │   └── "Plan your 2026" subtitle (desktop only)
 ├── Add Event Button (+ keyboard shortcut badge on desktop)
 ├── Scheduled Events (collapsible, default: expanded)
@@ -225,8 +234,22 @@ Floating Action Button (mobile only)
 └── Opens events view from calendar view
 
 Modal
-└── Event Form (title, week select, priority, description, delete)
-    **Delete confirmation**: Browser `confirm()` dialog with "Delete this event?" prompt
+├── Event Form (title, week select, priority, description, delete)
+│   **Delete confirmation**: Browser `confirm()` dialog with "Delete this event?" prompt
+└── Share Modal
+    ├── View Link section
+    │   ├── "Generate" button OR
+    │   ├── URL input (readonly, copyable) + Copy + Revoke buttons
+    │   └── Description: "Anyone with link can view this calendar"
+    └── Invite Link section
+        ├── "Generate" button OR
+        ├── URL input (readonly, copyable) + Copy + Revoke buttons
+        └── Description: "Anyone with link can join as member"
+
+SharedCalendarView (public view via share token)
+├── Banner: "Viewing {calendar name} (read-only)" or "Join {name}?" with sign-in CTA
+├── RadialCalendar (read-only, no click handlers)
+└── Event list (read-only)
 
 Tooltip
 ├── Desktop: floating, mouse-follow
@@ -258,6 +281,11 @@ Tooltip
   - Positioned with safe area insets: `bottom: max(1.5rem, env(safe-area-inset-bottom) + 1rem)`
 - **Back button** (events view): In sidebar header, arrow-left icon, returns to calendar view
 
+**Share Link URL format**:
+- Hash-based routing: `#/share/{token}` (no server changes needed)
+- Token format: 12-char base62 (`[a-zA-Z0-9]`)
+- Example: `https://example.com/#/share/abc123xyz456`
+
 **History API integration** (for back gesture/button support):
 - Opening events view pushes state to history: `history.pushState({ view: 'events' }, '', '#events')`
 - Back button in header calls `history.back()` instead of directly switching views
@@ -288,28 +316,41 @@ The frontend uses Convex for real-time data.
 
 | Hook | Purpose |
 |------|---------|
-| `useQuery(api.events.getEvents)` | Fetch all events |
+| `useQuery(api.events.getEvents)` | Fetch all events for a calendar |
 | `useMutation(api.events.createEvent)` | Create new event |
 | `useMutation(api.events.updateEvent)` | Update existing event |
 | `useMutation(api.events.deleteEvent)` | Delete event |
+| `useQuery(api.calendars.getMyCalendars)` | Fetch all calendars user belongs to |
+| `useQuery(api.calendars.getPrimaryCalendar)` | Fetch user's primary calendar |
+| `useMutation(api.calendars.createCalendar)` | Create new calendar |
+| `useMutation(api.calendars.deleteCalendar)` | Delete calendar (owner only) |
+| `useQuery(api.shareLinks.getCalendarShareLinks)` | Fetch share links for a calendar |
+| `useQuery(api.shareLinks.getCalendarByToken)` | Fetch calendar data via share token (public) |
+| `useMutation(api.shareLinks.createShareLink)` | Generate view or invite link |
+| `useMutation(api.shareLinks.revokeShareLink)` | Revoke a share link |
+| `useMutation(api.shareLinks.joinViaInviteLink)` | Join calendar via invite link |
 
 ### Event Schema
 
 ```typescript
 {
   _id: Id<"events">,
+  calendarId: Id<"calendars">,
   title: string,
   week: number | null,  // 1-52 = scheduled, null = backlog
   priority: "major" | "big" | "medium" | "minor",
   description?: string,
+  createdBy: Id<"users">,
   createdAt: number
 }
 ```
 
 ### Week Dates
 
-- Weeks start Monday; Week 1 contains Jan 1, 2026
-- Display format: `"Feb 2-8"` or `"Jan 27 - Feb 2"` (cross-month)
+- **ISO-style weeks**: Monday-aligned, Week 1 contains January 1st
+- For 2026: Week 1 = Dec 29, 2025 - Jan 4, 2026 (Monday before Jan 1)
+- Week 2 = Jan 5-11, Week 3 = Jan 12-18, etc.
+- Display format: `"Dec 29 - Jan 4"` (cross-month) or `"Jan 5-11"` (same month)
 
 ---
 
@@ -334,16 +375,24 @@ The page must feel instant. Render the static UI before fetching data:
 The calendar renders synchronously with memoized node positions. Event data flows via Convex hooks (`useQuery`) which update reactively.
 
 ```
-App (view state, modals)
-├── Sidebar (events, collapse state)
-│   └── EventCard[] (event display)
-├── RadialCalendar (SVG)
-│   ├── MonthDividers
-│   ├── WeekNode[] (52 nodes)
-│   ├── MonthLabels
-│   └── CenterHub
-├── Tooltip (hover/touch info)
-└── EventModal (create/edit)
+App (routing, auth state)
+├── AuthScreen (Google sign-in)
+├── SharedCalendarView (public view via share token)
+│   ├── Banner (read-only indicator, join button)
+│   ├── Sidebar (read-only event list)
+│   └── RadialCalendar (read-only)
+└── CalendarApp (authenticated user view)
+    ├── Sidebar (events, collapse state)
+    │   ├── CalendarDropdown (switch calendars, create/delete, share)
+    │   └── EventCard[] (event display)
+    ├── RadialCalendar (SVG)
+    │   ├── MonthDividers
+    │   ├── WeekNode[] (52 nodes)
+    │   ├── MonthLabels
+    │   └── CenterHub
+    ├── Tooltip (hover/touch info)
+    ├── EventModal (create/edit)
+    └── ShareModal (generate/revoke share links)
 ```
 
 ### Error Handling
