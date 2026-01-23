@@ -226,6 +226,7 @@ Floating Action Button (mobile only)
 
 Modal
 └── Event Form (title, week select, priority, description, delete)
+    **Delete confirmation**: Browser `confirm()` dialog with "Delete this event?" prompt
 
 Tooltip
 ├── Desktop: floating, mouse-follow
@@ -279,36 +280,31 @@ Tooltip
 
 ---
 
-## 6. API Contract
+## 6. Data Layer
 
-The frontend consumes these endpoints. See `backend.md` for server implementation details.
+The frontend uses Convex for real-time data.
 
-### Endpoints
+### Convex Hooks
 
-| Endpoint | Method | Request | Response |
-|----------|--------|---------|----------|
-| `/api/state` | GET | - | `{"events2026": [...]}` |
-| `/api/state` | POST | `{"events2026": [...]}` | `{"ok": true}` |
+| Hook | Purpose |
+|------|---------|
+| `useQuery(api.events.getEvents)` | Fetch all events |
+| `useMutation(api.events.createEvent)` | Create new event |
+| `useMutation(api.events.updateEvent)` | Update existing event |
+| `useMutation(api.events.deleteEvent)` | Delete event |
 
 ### Event Schema
 
-```json
+```typescript
 {
-  "id": "evt_1704067200000",
-  "title": "Event Title",
-  "week": 12,
-  "priority": "major",
-  "description": "Optional notes"
+  _id: Id<"events">,
+  title: string,
+  week: number | null,  // 1-52 = scheduled, null = backlog
+  priority: "major" | "big" | "medium" | "minor",
+  description?: string,
+  createdAt: number
 }
 ```
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `id` | string | Generated client-side: `evt_{timestamp}` |
-| `title` | string | Required |
-| `week` | number \| null | `1-52` = scheduled, `null` = backlog |
-| `priority` | string | `major` \| `big` \| `medium` \| `minor` |
-| `description` | string | Optional |
 
 ### Week Dates
 
@@ -323,33 +319,36 @@ The frontend consumes these endpoints. See `backend.md` for server implementatio
 
 The page must feel instant. Render the static UI before fetching data:
 
-1. **Immediate** (on DOMContentLoaded, no await):
+1. **Immediate** (on initial render):
    - Render empty calendar structure (nodes, labels, dividers, hub)
-   - Populate week select dropdown
-   - Setup event listeners
+   - Render sidebar with empty event lists
    - Restore collapse state from localStorage
 
-2. **Async** (after calendar is visible):
-   - Fetch `/api/state`
+2. **Async** (via Convex reactive queries):
+   - Fetch events from Convex
    - Update node colors based on events
-   - Render event lists in sidebar
+   - Populate event lists in sidebar
 
-### Static HTML Structure
+### React Component Structure
 
-The SVG element with empty `<g>` groups for dividers, nodes, and labels must exist in HTML markup. Center hub can be SVG or HTML overlay.
+The calendar renders synchronously with memoized node positions. Event data flows via Convex hooks (`useQuery`) which update reactively.
 
-### Calendar Rendering
-
-The `buildCalendar()` / `renderCalendar()` function must:
-1. Run synchronously (no awaits)
-2. Complete before any API calls
-3. Display a fully-formed but empty calendar
-
-Node colors and event data are applied separately via `updateNodes()` after the API responds.
+```
+App (view state, modals)
+├── Sidebar (events, collapse state)
+│   └── EventCard[] (event display)
+├── RadialCalendar (SVG)
+│   ├── MonthDividers
+│   ├── WeekNode[] (52 nodes)
+│   ├── MonthLabels
+│   └── CenterHub
+├── Tooltip (hover/touch info)
+└── EventModal (create/edit)
+```
 
 ### Error Handling
 
-If `/api/state` fails or times out:
+If Convex connection fails:
 - Calendar remains visible with empty (white) nodes
 - Sidebar shows empty event lists
 - No error modal or blocking UI

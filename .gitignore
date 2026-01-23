@@ -1,18 +1,31 @@
-env
-main.go
-server
-.DS_Store
-future.md
-go.mod
-go.sum
-index.html
-manifest.json
-sw.js
+# Dependencies
 node_modules/
-package-lock.json
+bun.lock
 
+# Build output
+dist/
+
+# Environment
+.env
 .env.local
-convex/_generated
+
+# Convex generated files
+convex/_generated/
+
+# OS files
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# Misc
 dump.rdb
+*.log
 convex
+public
+src
+build.ts
 package.json
+server.ts
+tsconfig.json
