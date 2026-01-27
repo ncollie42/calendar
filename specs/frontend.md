@@ -1,4 +1,13 @@
-# Event Tracker 2026: Design Specification
+# Frontend Specification
+
+UI behavior, interactions, and component structure for Event Tracker 2026.
+
+**Related specs:**
+- `constants.md` — All design tokens (colors, geometry, timing)
+- `data-model.md` — Database schema and types
+- `manifest.md` — File list and component interfaces
+
+---
 
 ## 1. Design Philosophy
 
@@ -14,52 +23,41 @@
 
 ## 2. Visual Language
 
-### Typography
+All color values, typography settings, and effect values are defined in `constants.md`. This section covers how they're applied.
 
-- **Font**: Inter (Google Fonts)
-- **Weights**: Bold (700) titles, Medium (500) labels, Regular (400) body
-- **Loading**: Only load weights 400, 500, 700 with `display=swap`
+### Color Application
 
-### Color Palette
-
-**Base**:
-
-| Token | Hex | Usage |
-|-------|-----|-------|
-| Background | `#FFFFFF` | Modals |
-| Surface | `#F9FAFB` | Sidebar, canvas |
-| Border Light | `#E5E7EB` | Cards, dividers, nodes |
-| Border Medium | `#D1D5DB` | Inputs |
-| Border Dark | `#374151` | Hover states |
-| Text Primary | `#111827` | Headers |
-| Text Secondary | `#374151` | Body |
-| Text Muted | `#6B7280` | Captions |
-
-**Priority Colors**:
-
-| Priority | Hex | Description |
-|----------|-----|-------------|
-| Major | `#E1523D` | Vermilion red |
-| Big | `#ED8B16` | Tangerine orange |
-| Medium | `#C2BB00` | Golden yellow |
-| Minor | `#005E54` | Deep teal |
+- **Empty nodes**: `borderLight` outline, white fill
+- **Filled nodes**: Priority color fill (see `constants.md` Priority Colors)
+- **Current week**: 3px `textPrimary` border
+- **Past weeks**: 65% opacity
+- **Hover states**: Border darkens to `borderDark`
 
 ### Effects
 
 - **Modal overlay**: 40% white backdrop with `backdrop-blur(4px)`
-- **Shadows**: `0 1px 3px rgba(0,0,0,0.04)` on nodes; `shadow-sm` cards; `shadow-xl` modals
 - **Nodes**: Outlined rounded squares; solid priority fill when event exists
+- **Shadows**: Applied per `constants.md` Effects section
+
+**Inline style caveat**: Tailwind utilities like `ringColor` aren't valid CSS properties. Use CSS variable syntax:
+```typescript
+style={{
+  "--tw-ring-color": getPriorityColor(p),
+} as React.CSSProperties}
+```
 
 ---
 
 ## 3. Radial Geometry
 
-### Canvas
+Geometry values (radii, sizes, offsets) are defined in `constants.md`. This section covers layout behavior.
+
+### Canvas Sizing
 
 - SVG viewBox is fixed at 700×700, center at (350, 350)
 - **Responsive sizing**: Container uses CSS to scale proportionally
   - Desktop (>1024px): `max-width: 700px`, centered in canvas area
-  - Mobile (≤1024px): `width: min(100vw - 32px, 100vh - 32px)` to fit viewport with 16px padding on each side
+  - Mobile (≤1024px): `width: min(100vw - 32px, 100vh - 32px)` to fit viewport
   - Aspect ratio maintained via `aspect-ratio: 1` on container
   - SVG fills container with `width: 100%; height: 100%`
 
@@ -68,46 +66,37 @@
 - 12 spokes at 30° intervals
 - January at top (-90°), proceeding clockwise
 
-### Week Nodes
+### Week Node Position Algorithm
 
-```text
-INNER_RADIUS: 120px    OUTER_RADIUS: 280px
-Node size: 24×24px     Border radius: 8px
-```
-
-**Position calculation**:
 ```javascript
 angleDeg = month * 30 - 90
 radius = INNER_RADIUS + (weekInMonth / (weeksInMonth - 1)) * (OUTER_RADIUS - INNER_RADIUS)
-x = 350 + radius * cos(angleDeg * PI/180)
-y = 350 + radius * sin(angleDeg * PI/180)
+x = CENTER + radius * cos(angleDeg * PI/180)
+y = CENTER + radius * sin(angleDeg * PI/180)
 nodeRotation = angleDeg + 90  // Align with spoke
 ```
 
-**Week distribution** (54 total, capped at 52):
-```
-Jan:5 Feb:4 Mar:4 Apr:5 May:4 Jun:5 Jul:4 Aug:5 Sep:4 Oct:5 Nov:4 Dec:5
-```
+Week distribution per month defined in `constants.md` (54 total nodes, capped at 52 unique weeks).
 
 ### Month Labels
 
-- Position: `OUTER_RADIUS + 40px` from center
+- Position: `OUTER_RADIUS + labelOffset` from center
 - Rotation: `angleDeg + 90`, add 180° if `angleDeg` between 0-180 (bottom half)
-- Style: Uppercase, semi-bold (600 weight), `#6B7280`
-- Mobile: 14px font size; Desktop: 12px font size
+- Style: Uppercase, semi-bold, `textMuted` color
+- Mobile: 14px; Desktop: 12px
 
 ### Month Dividers
 
-- 12 SVG lines at midpoint angles between spokes
-- Span from hub edge (~56px) to past labels (~310px)
-- Style: `#E5E7EB` at 50% opacity, 1px, lowest z-index
+- 12 SVG lines at midpoint angles between spokes (offset 15°)
+- Span from `dividerInner` to `dividerOuter`
+- Style: `borderLight` at 50% opacity, 1px, lowest z-index
 
 ### Center Hub
 
-- 112px diameter circle, centered at SVG origin (350, 350)
-- **Positioning**: HTML overlay with `position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%)` inside a `position: relative` container
-- Gradient: white to `#F9FAFB`
-- Shadow: `inset 0 2px 8px rgba(0,0,0,0.06)`, ring `0 0 0 1px rgba(0,0,0,0.04)`
+- 112px diameter circle (`hubRadius * 2`), centered at SVG origin
+- **Positioning**: HTML overlay with absolute centering inside relative container
+- Gradient: white to `surface`
+- Shadow: inset shadow + subtle ring (see `constants.md`)
 - Content:
   - Top line: "2026" (bold)
   - Bottom line: "Week X of 52" (current week progress)
@@ -118,25 +107,24 @@ Jan:5 Feb:4 Mar:4 Apr:5 May:4 Jun:5 Jul:4 Aug:5 Sep:4 Oct:5 Nov:4 Dec:5
 
 ### Hover States
 
-- **Nodes**: 1.2× scale, border darkens to `#374151`
-- **Cards**: Background `#F3F4F6`
-- **Transitions**: `cubic-bezier(0.34, 1.56, 0.64, 1)` for scale, 200-300ms
+- **Nodes**: 1.2× scale, border darkens to `borderDark`
+- **Cards**: Background lightens
+- **Transitions**: Bouncy easing (see `constants.md` Timing)
 
 ### Node Hover Stability
 
-Node hover effects must use a **stable hitbox pattern** to prevent flickering caused by boundary shifts during scaling:
+Node hover effects must use a **stable hitbox pattern** to prevent flickering:
 
-- **Outer element (hitbox)**: Fixed 36×36px, handles positioning/rotation, receives pointer events
-- **Inner element (visual)**: 24×24px, performs visual transforms, has `pointer-events: none`
+- **Outer element (hitbox)**: Fixed `hitboxSize`, handles positioning/rotation, receives pointer events
+- **Inner element (visual)**: `nodeSize`, performs visual transforms, has `pointer-events: none`
 
 **Implementation requirements**:
-- The hitbox element must not change dimensions on hover
-- All visual transforms (scale, shadow, border) apply to the inner element only
-- `transform-origin: center` on the visual element ensures centered scaling
-- **SVG note**: Use `transform-box: fill-box` on the visual element so `transform-origin` references the element's bounding box, not the SVG canvas origin
-- **SVG note**: Set `pointer-events="all"` on hitbox rects with transparent fill to ensure cross-browser pointer event capture
-- **SVG note**: Use `element.setAttribute('class', ...)` to reset classes on SVG elements. `element.className = ...` silently fails because SVG `className` is a read-only `SVGAnimatedString`
-- **Touch optimization**: Hitbox is 36×36px (12px larger than visual) for easier touch targeting
+- Hitbox element must not change dimensions on hover
+- All visual transforms apply to inner element only
+- `transform-origin: center` on visual element
+- **SVG**: Use `transform-box: fill-box` so transform-origin references element's bounding box
+- **SVG**: Set `pointer-events="all"` on hitbox rects with transparent fill
+- **SVG**: Use `element.setAttribute('class', ...)` to reset classes (not `className`)
 
 ### Priority Ranking
 
@@ -146,52 +134,45 @@ When week has multiple events, node shows highest priority:
 ### Current Week Indicator
 
 **Visual treatment:**
-- **Current week node**: Thicker border (3px) in `#111827` (text-primary black)
-  - Applies regardless of whether node has event fill or is empty
-  - Border color remains constant, does not change with priority color
-- **Past weeks**: Rendered at 65% opacity (both empty and filled nodes)
-- **Future weeks**: Full opacity (100%)
+- **Current week node**: 3px `textPrimary` border (regardless of fill state)
+- **Past weeks**: 65% opacity
+- **Future weeks**: 100% opacity
 
 **Week calculation:**
 - ISO-style weeks: Monday-aligned, Week 1 contains January 1st
-- For 2026: Week 1 starts Dec 29, 2025 (the Monday of the week containing Jan 1)
-- Week number = `Math.floor(daysSinceWeek1Start / 7) + 1`
-- Calculated client-side from `new Date()`
-- Updates on page load (not real-time at midnight)
-
-**Center hub integration:**
-- Bottom line displays "Week X of 52" where X is current week number
-- Replaces previous "52 WEEKS" / event count display
+- For 2026: Week 1 starts Dec 29, 2025
+- Formula: `Math.floor(daysSinceWeek1Start / 7) + 1`
+- Calculated client-side, updates on page load only
 
 ### Node Click/Tap Behavior
 
 **Desktop (pointer: fine)**:
-- Clicking a node opens the event creation modal with that week pre-selected
+- Clicking a node opens event modal with that week pre-selected
 
 **Touch devices (pointer: coarse)**:
-- Tapping a node shows the tooltip (same content as hover: week info, date range, event list)
-- Tooltip anchored near the tapped node (not mouse-follow)
-- Tap anywhere to dismiss (including tapping the same node again)
-- Event creation on touch devices is via the "Add Event" button only
+- Tapping a node shows tooltip (week info, date range, event list)
+- Tooltip anchored near tapped node
+- Tap anywhere to dismiss
+- Event creation via "Add Event" button only
 
-**Implementation**: Use event delegation on the SVG element with separate listeners for touch and mouse:
-- `touchstart` on SVG → if target is node, show tooltip and call `preventDefault()` to block click
-- `click` on SVG → if target is node, open modal (only fires on non-touch since touch prevents it)
-- `touchstart` on document → dismiss tooltip if tap is outside a node
+**Implementation**: Event delegation on SVG element:
+- `touchstart` → show tooltip, `preventDefault()` to block click
+- `click` → open modal (only fires on non-touch)
+- `touchstart` on document → dismiss tooltip if outside node
 
-Using `touchstart` (not `touchend`) is more reliable for SVG elements. The `{ passive: false }` option is required for `preventDefault()` to work.
+Use `{ passive: false }` for `preventDefault()` to work.
 
 ### Tooltips
 
-- **Desktop**: Mouse-follow (12px offset right/below cursor), fade 150ms
-- **Touch**: Anchored near tapped node (centered above or below based on screen position), persists until dismissed
-- Content: Week N, Month, Date range, Event list
+- **Desktop**: Mouse-follow (12px offset), fade 150ms
+- **Touch**: Anchored near node, persists until dismissed
+- **Content**: Week N, Month, Date range, Event list
 
-**SVG implementation notes**:
-- Use event delegation on the SVG parent element, not individual node listeners
-- Use `mouseover`/`mouseout` (which bubble) instead of `mouseenter`/`mouseleave`
-- Use `element.closest('.node-hitbox')` to find the hovered node
-- Toggle visibility via CSS class (`.visible`), not inline styles
+**SVG implementation**:
+- Event delegation on SVG parent, not individual nodes
+- Use `mouseover`/`mouseout` (which bubble)
+- Use `element.closest('.node-hitbox')` to find hovered node
+- Toggle visibility via CSS class
 
 ### Keyboard
 
@@ -203,11 +184,13 @@ Using `touchstart` (not `touchend`) is more reliable for SVG elements. The `{ pa
 
 ## 5. Components
 
+Component props interfaces are defined in `manifest.md`.
+
 ```
 Sidebar
 ├── Header
-│   ├── Back Button (mobile only, hidden on desktop)
-│   ├── Calendar Dropdown (replaces "Event Tracker" title)
+│   ├── Back Button (mobile only)
+│   ├── Calendar Dropdown
 │   │   ├── Current calendar name with chevron
 │   │   ├── Dropdown menu:
 │   │   │   ├── Calendar list (name + role badge)
@@ -216,7 +199,7 @@ Sidebar
 │   │   │   └── Delete Calendar (owner only, confirmation)
 │   │   └── Share button (opens ShareModal)
 │   └── "Plan your 2026" subtitle (desktop only)
-├── Add Event Button (+ keyboard shortcut badge on desktop)
+├── Add Event Button (+ keyboard shortcut badge)
 ├── Scheduled Events (collapsible, default: expanded)
 │   └── Event cards sorted by week, then priority
 ├── ── [divider] ──
@@ -235,21 +218,100 @@ Floating Action Button (mobile only)
 
 Modal
 ├── Event Form (title, week select, priority, description, delete)
-│   **Delete confirmation**: Browser `confirm()` dialog with "Delete this event?" prompt
+│   **Delete confirmation**: Browser `confirm()` dialog
 └── Share Modal
-    ├── View Link section
-    │   ├── "Generate" button OR
-    │   ├── URL input (readonly, copyable) + Copy + Revoke buttons
-    │   └── Description: "Anyone with link can view this calendar"
-    └── Invite Link section
-        ├── "Generate" button OR
-        ├── URL input (readonly, copyable) + Copy + Revoke buttons
-        └── Description: "Anyone with link can join as member"
+    ├── View Link section (generate/copy/revoke)
+    └── Invite Link section (generate/copy/revoke)
 
 SharedCalendarView (public view via share token)
-├── Banner: "Viewing {calendar name} (read-only)" or "Join {name}?" with sign-in CTA
-├── RadialCalendar (read-only, no click handlers)
+├── Banner: context-aware (see Join Flow States below)
+├── RadialCalendar (read-only)
 └── Event list (read-only)
+
+### Share Link UX
+
+**ShareModal behavior:**
+- One-click generate + auto-copy (with toast feedback)
+- Show link age: "Created 3 days ago"
+- Revoke shows brief warning: "Anyone with this link will lose access"
+- Persistent "link active" vs "no link" indicator
+- Copy button shows "Copied!" for 2s, then reverts
+
+**Clipboard handling:**
+```typescript
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    // Fallback: select input text, prompt manual copy
+    inputRef.current?.select();
+    return false;
+  }
+}
+```
+- On failure: select input text + show "Press Ctrl+C to copy"
+- Never fail silently
+
+### Join Flow States
+
+SharedCalendarView must handle all user states:
+
+| Auth State | Membership | UI |
+|------------|------------|-----|
+| Not authenticated | — | "Sign in to join" button |
+| Authenticated | Not member | "Join Calendar" button |
+| Authenticated | Already member | "You're already a member" + "Go to Calendar" link |
+| Authenticated | Is owner | "This is your calendar" + "Go to Calendar" link |
+
+**After successful join:**
+- Redirect directly to that calendar (not home)
+- Show calendar name in success state
+- If user has multiple calendars, ensure correct one is selected
+
+**Edge case: wrong account:**
+- Show which account will join: "Join as {email}?"
+- Provide "Switch account" option
+
+### Real-time Revocation Handling
+
+Since Convex queries are reactive, SharedCalendarView auto-updates when link is revoked:
+
+```typescript
+// Track previous state to detect revocation
+const prevDataRef = useRef(data);
+
+useEffect(() => {
+  if (data === null && prevDataRef.current !== null) {
+    // Link was just revoked while viewing
+    // Show "Access has been revoked" (not "Invalid link")
+  }
+  prevDataRef.current = data;
+}, [data]);
+```
+
+**User sees:**
+- Valid → Revoked: "Access to this calendar has been revoked"
+- Never valid: "This link is invalid or has expired"
+
+### Token URL Privacy
+
+After SharedCalendarView loads successfully, sanitize URL:
+
+```typescript
+useEffect(() => {
+  if (data) {
+    // Remove token from URL bar, history, bookmarks, screenshots
+    history.replaceState(null, '', '#/shared');
+  }
+}, [data]);
+```
+
+**Why:**
+- Prevents token appearing in browser history
+- Prevents accidental sharing via screenshots
+- Prevents bookmarking with token exposed
+- Reference: [W3C Capability URLs](https://www.w3.org/2001/tag/doc/capability-urls/)
 
 Tooltip
 ├── Desktop: floating, mouse-follow
@@ -259,98 +321,80 @@ Tooltip
 ### Collapsible Sections
 
 - Click header to toggle; chevron rotates 180°
-- Transition: `max-height` 300ms ease-out
-- Count badge: `#E5E7EB` background, `#6B7280` text, `rounded-full`
+- Transition: `max-height` with collapse timing from `constants.md`
+- Count badge: `borderLight` background, `textMuted` text, rounded-full
 - State persisted in localStorage key `sidebarCollapseState`
-- Sections are siblings (independent collapse)
+- Sections collapse independently
 
-### Responsive
+### Responsive Layout
 
 | Breakpoint | Layout |
 |------------|--------|
-| >1024px | 25% sidebar / 75% canvas (sidebar: 280-360px) |
-| ≤1024px | Full-screen toggle views (calendar or events) |
+| >1024px | 25% sidebar (280-360px) / 75% canvas |
+| ≤1024px | Full-screen toggle views |
 
 **Mobile layout (≤1024px)**:
-- **Two full-screen views** that toggle (CSS classes `mobile-view-calendar`, `mobile-view-events` on `#app`):
-  - **Calendar view** (default): Full-screen radial calendar
-  - **Events view**: Full-screen sidebar (Add Event, Scheduled, Backlog)
+- Two full-screen views via CSS classes on `#app`:
+  - `mobile-view-calendar` (default): Full-screen radial calendar
+  - `mobile-view-events`: Full-screen sidebar
 
-**Mobile navigation elements**:
-- **Floating action button** (calendar view): Fixed position bottom-right, 56×56px dark rounded button with list icon, opens events view
-  - Positioned with safe area insets: `bottom: max(1.5rem, env(safe-area-inset-bottom) + 1rem)`
-- **Back button** (events view): In sidebar header, arrow-left icon, returns to calendar view
+**Mobile navigation**:
+- **FAB** (calendar view): Bottom-right, 56×56px, opens events view
+  - Safe area positioning: `bottom: max(1.5rem, env(safe-area-inset-bottom) + 1rem)`
+- **Back button** (events view): In header, returns to calendar
 
 **Share Link URL format**:
-- Hash-based routing: `#/share/{token}` (no server changes needed)
-- Token format: 12-char base62 (`[a-zA-Z0-9]`)
-- Example: `https://example.com/#/share/abc123xyz456`
+- Hash-based routing: `#/share/{token}`
+- Token: 22-char base62, CSPRNG (see `constants.md`)
 
-**History API integration** (for back gesture/button support):
-- Opening events view pushes state to history: `history.pushState({ view: 'events' }, '', '#events')`
-- Back button in header calls `history.back()` instead of directly switching views
-- `popstate` event listener returns to calendar view when back is triggered
-- On page load, if URL hash is `#events`, show events view
-- This prevents the PWA from closing when user presses back in events view—it returns to calendar first
+**History API integration**:
+- Events view pushes state: `history.pushState({ view: 'events' }, '', '#events')`
+- Back button calls `history.back()`
+- `popstate` listener returns to calendar view
+- Prevents PWA from closing on back press
 
 **Mobile visual adjustments**:
-- Hide priority legend (colors visible on calendar nodes)
-- Reduce header padding (`p-4` instead of `p-6`)
-- Hide "Plan your 2026" subtitle
-- Smaller section header text (`text-xs` instead of `text-sm`)
-- Larger month labels (14px vs 12px on desktop)
-- Larger touch targets on nodes (36px hitbox vs 24px visual)
+- Hide priority legend
+- Reduce header padding (`p-4` vs `p-6`)
+- Hide subtitle
+- Smaller section headers (`text-xs` vs `text-sm`)
+- Larger month labels (14px vs 12px)
+- Larger touch targets (36px hitbox)
 
 **Safe area support**:
 - Viewport meta: `viewport-fit=cover`
-- Floating button uses `env(safe-area-inset-bottom)` and `env(safe-area-inset-right)`
-- SVG has `touch-action: manipulation` for reliable touch events
+- FAB uses `env(safe-area-inset-*)` values
+- SVG has `touch-action: manipulation`
 
 ---
 
 ## 6. Data Layer
 
-The frontend uses Convex for real-time data.
+Schema and types defined in `data-model.md`. This section covers frontend data flow.
 
 ### Convex Hooks
 
 | Hook | Purpose |
 |------|---------|
-| `useQuery(api.events.getEvents)` | Fetch all events for a calendar |
-| `useMutation(api.events.createEvent)` | Create new event |
-| `useMutation(api.events.updateEvent)` | Update existing event |
+| `useQuery(api.events.getEvents)` | Fetch events for calendar |
+| `useMutation(api.events.createEvent)` | Create event |
+| `useMutation(api.events.updateEvent)` | Update event |
 | `useMutation(api.events.deleteEvent)` | Delete event |
-| `useQuery(api.calendars.getMyCalendars)` | Fetch all calendars user belongs to |
-| `useQuery(api.calendars.getPrimaryCalendar)` | Fetch user's primary calendar |
-| `useMutation(api.calendars.createCalendar)` | Create new calendar |
-| `useMutation(api.calendars.deleteCalendar)` | Delete calendar (owner only) |
-| `useQuery(api.shareLinks.getCalendarShareLinks)` | Fetch share links for a calendar |
-| `useQuery(api.shareLinks.getCalendarByToken)` | Fetch calendar data via share token (public) |
-| `useMutation(api.shareLinks.createShareLink)` | Generate view or invite link |
-| `useMutation(api.shareLinks.revokeShareLink)` | Revoke a share link |
-| `useMutation(api.shareLinks.joinViaInviteLink)` | Join calendar via invite link |
+| `useQuery(api.calendars.getMyCalendars)` | Fetch user's calendars |
+| `useQuery(api.calendars.getPrimaryCalendar)` | Fetch primary calendar |
+| `useMutation(api.calendars.createCalendar)` | Create calendar |
+| `useMutation(api.calendars.deleteCalendar)` | Delete calendar |
+| `useQuery(api.shareLinks.getCalendarShareLinks)` | Fetch share links |
+| `useQuery(api.shareLinks.getCalendarByToken)` | Fetch via share token |
+| `useMutation(api.shareLinks.createShareLink)` | Generate link |
+| `useMutation(api.shareLinks.revokeShareLink)` | Revoke link |
+| `useMutation(api.shareLinks.joinViaInviteLink)` | Join via invite |
 
-### Event Schema
+### Week Date Display
 
-```typescript
-{
-  _id: Id<"events">,
-  calendarId: Id<"calendars">,
-  title: string,
-  week: number | null,  // 1-52 = scheduled, null = backlog
-  priority: "major" | "big" | "medium" | "minor",
-  description?: string,
-  createdBy: Id<"users">,
-  createdAt: number
-}
-```
-
-### Week Dates
-
-- **ISO-style weeks**: Monday-aligned, Week 1 contains January 1st
-- For 2026: Week 1 = Dec 29, 2025 - Jan 4, 2026 (Monday before Jan 1)
-- Week 2 = Jan 5-11, Week 3 = Jan 12-18, etc.
-- Display format: `"Dec 29 - Jan 4"` (cross-month) or `"Jan 5-11"` (same month)
+- ISO-style weeks: Monday-aligned, Week 1 contains January 1st
+- 2026 Week 1: Dec 29, 2025 - Jan 4, 2026
+- Format: `"Dec 29 - Jan 4"` (cross-month) or `"Jan 5-11"` (same month)
 
 ---
 
@@ -358,60 +402,54 @@ The frontend uses Convex for real-time data.
 
 ### Initialization Order
 
-The page must feel instant. Render the static UI before fetching data:
+The page must feel instant. Render static UI before data:
 
 1. **Immediate** (on initial render):
-   - Render empty calendar structure (nodes, labels, dividers, hub)
-   - Render sidebar with empty event lists
+   - Empty calendar structure (nodes, labels, dividers, hub)
+   - Sidebar with empty event lists
    - Restore collapse state from localStorage
 
 2. **Async** (via Convex reactive queries):
-   - Fetch events from Convex
-   - Update node colors based on events
-   - Populate event lists in sidebar
+   - Fetch events
+   - Update node colors
+   - Populate event lists
 
 ### React Component Structure
-
-The calendar renders synchronously with memoized node positions. Event data flows via Convex hooks (`useQuery`) which update reactively.
 
 ```
 App (routing, auth state)
 ├── AuthScreen (Google sign-in)
-├── SharedCalendarView (public view via share token)
-│   ├── Banner (read-only indicator, join button)
-│   ├── Sidebar (read-only event list)
+├── SharedCalendarView (public share)
+│   ├── Banner
+│   ├── Sidebar (read-only)
 │   └── RadialCalendar (read-only)
-└── CalendarApp (authenticated user view)
-    ├── Sidebar (events, collapse state)
-    │   ├── CalendarDropdown (switch calendars, create/delete, share)
-    │   └── EventCard[] (event display)
-    ├── RadialCalendar (SVG)
+└── CalendarApp (authenticated)
+    ├── Sidebar
+    │   ├── CalendarDropdown
+    │   └── EventCard[]
+    ├── RadialCalendar
     │   ├── MonthDividers
-    │   ├── WeekNode[] (52 nodes)
+    │   ├── WeekNode[]
     │   ├── MonthLabels
     │   └── CenterHub
-    ├── Tooltip (hover/touch info)
-    ├── EventModal (create/edit)
-    └── ShareModal (generate/revoke share links)
+    ├── Tooltip
+    ├── EventModal
+    └── ShareModal
 ```
 
 ### Error Handling
 
 If Convex connection fails:
-- Calendar remains visible with empty (white) nodes
+- Calendar visible with empty (white) nodes
 - Sidebar shows empty event lists
-- No error modal or blocking UI
-- Console logs the error for debugging
+- No blocking error modal
+- Console logs error
 
 ---
 
-## 8. Progressive Web App (PWA)
+## 8. Progressive Web App
 
-The app is installable as a PWA for a native app-like experience on mobile and desktop.
-
-### Manifest
-
-File: `/manifest.json`
+### Manifest (`/manifest.json`)
 
 ```json
 {
@@ -428,11 +466,9 @@ File: `/manifest.json`
 }
 ```
 
-### Service Worker
+### Service Worker (`/sw.js`)
 
-File: `/sw.js`
-
-Minimal service worker that registers but does not cache. Required for PWA install prompt.
+Minimal—enables PWA install, no caching:
 
 ```javascript
 self.addEventListener('install', () => self.skipWaiting());
@@ -441,10 +477,10 @@ self.addEventListener('activate', () => self.clients.claim());
 
 ### Icons
 
-- `/icon-192.png` and `/icon-512.png`: Solid `#111827` (theme color) squares
-- Generated dynamically by the server (no static files needed)
+- `/icon-192.png` and `/icon-512.png`: Solid `textPrimary` color squares
+- Generated by server or static files in `public/`
 
-### HTML Head Tags
+### HTML Head
 
 ```html
 <meta name="theme-color" content="#111827">
@@ -452,7 +488,7 @@ self.addEventListener('activate', () => self.clients.claim());
 <link rel="apple-touch-icon" href="/icon-192.png">
 ```
 
-### Service Worker Registration
+### Registration
 
 ```javascript
 if ('serviceWorker' in navigator) {
@@ -460,12 +496,69 @@ if ('serviceWorker' in navigator) {
 }
 ```
 
-### PWA Features Enabled
+### Features
 
 | Feature | Status |
 |---------|--------|
 | Add to Home Screen | Yes |
-| Standalone display (no browser chrome) | Yes |
-| Theme color in status bar | Yes |
-| Offline support | No (online-only) |
+| Standalone display | Yes |
+| Theme color | Yes |
+| Offline support | No |
 | Background sync | No |
+
+---
+
+## 9. CSS Implementation Details
+
+### Node Hover Effect
+
+The stable hitbox pattern requires this CSS rule to apply hover transforms:
+
+```css
+.node-hitbox:hover .node-visual {
+  transform: scale(1.2);
+  stroke: #374151 !important;  /* borderDark */
+}
+```
+
+### Mobile View Toggle
+
+CSS classes control which panel is visible on mobile:
+
+```css
+@media (max-width: 1024px) {
+  .mobile-view-calendar .sidebar {
+    display: none;
+  }
+  .mobile-view-events .canvas {
+    display: none;
+  }
+  .mobile-view-events .sidebar {
+    width: 100%;
+    height: 100vh;
+  }
+}
+```
+
+### Loading Spinner
+
+Used for auth and data loading states:
+
+```css
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+```
+
+### Scrollbar Styling
+
+Subtle scrollbars for event lists:
+
+```css
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 3px; }
+```

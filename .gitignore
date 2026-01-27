@@ -31,3 +31,8 @@ server.ts
 tsconfig.json
 tests/server.test.ts
 vitest.config.ts
+.dockerignore
+Dockerfile
+fly.toml
+postcss.config.js
+tailwind.config.js

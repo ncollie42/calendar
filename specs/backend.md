@@ -1,42 +1,26 @@
 # Backend Specification
 
-Bun server (static files + bundling) + Convex (data) for the 2026 Planning Calendar.
+Server, deployment, and infrastructure for Event Tracker 2026.
+
+**Related specs:**
+- `data-model.md` — Database schema, types, access control
+- `manifest.md` — Complete file list and build order
+- `constants.md` — Design tokens used in icon generation
 
 ---
 
 ## 1. Architecture
 
-### Project Structure
+### Stack
 
-```
-calendar/
-├── server.ts            # Bun.serve() dev/prod server
-├── build.ts             # Production build script
-├── package.json         # Dependencies and scripts
-├── tsconfig.json        # TypeScript configuration
-├── src/                 # React TypeScript source
-│   ├── main.tsx         # Entry point with ConvexProvider
-│   ├── App.tsx          # Root component
-│   ├── components/      # React components
-│   ├── hooks/           # Custom hooks
-│   ├── lib/             # Utilities (geometry, weeks, constants)
-│   └── styles.css       # Global styles
-├── public/              # Static files
-│   ├── index.html       # HTML entrypoint
-│   ├── manifest.json    # PWA manifest
-│   └── sw.js            # Service worker
-├── convex/
-│   ├── schema.ts        # Database schema
-│   ├── events.ts        # Event CRUD functions
-│   ├── calendars.ts     # Calendar queries and mutations
-│   ├── shareLinks.ts    # Share link management
-│   └── users.ts         # User setup functions
-└── dist/                # Production build output
-```
+- **Server**: Bun.serve() for static files + bundling
+- **Database**: Convex (real-time, serverless)
+- **Auth**: Google OAuth via @convex-dev/auth
+- **Deployment**: Fly.io (server) + Convex Cloud (data)
 
 ### Bun Server (`server.ts`)
 
-Development mode bundles TypeScript/React on the fly. Production mode serves pre-built files from `dist/`.
+Development mode bundles TypeScript/React on the fly. Production serves pre-built files from `dist/`.
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
@@ -46,93 +30,53 @@ Development mode bundles TypeScript/React on the fly. Production mode serves pre
 | `/styles.css` | GET | Serve CSS |
 | `/manifest.json` | GET | PWA manifest |
 | `/sw.js` | GET | Service worker |
-| `/icon-192.png` | GET | PWA icon (192×192, generated) |
-| `/icon-512.png` | GET | PWA icon (512×512, generated) |
+| `/icon-192.png` | GET | PWA icon (192×192) |
+| `/icon-512.png` | GET | PWA icon (512×512) |
+
+**Note**: CSS requires Tailwind compilation at runtime:
+```typescript
+const result = await $`bunx tailwindcss -i ./src/styles.css -o /dev/stdout`.text();
+```
+Raw CSS with `@tailwind` directives won't work—must compile before serving.
 
 ### Dynamic Icon Generation
 
-PWA icons are generated at runtime using raw PNG construction:
+PWA icons generated at runtime using raw PNG construction:
+
 1. PNG signature: `[137, 80, 78, 71, 13, 10, 26, 10]`
 2. IHDR chunk: width/height as 32-bit big-endian, bit depth 8, color type 2 (RGB)
-3. IDAT chunk: Use `Bun.deflateSync()` to compress raw pixel data
-4. Each chunk needs CRC32 checksum of type + data
+3. IDAT chunk: `Bun.deflateSync()` to compress raw pixel data
+4. CRC32 checksum for each chunk
 
-Alternative: Include static PNG files in `public/` instead of generating at runtime.
+Alternative: Static PNG files in `public/`.
 
 ### Development Hot Reload
 
-The dev server caches the bundled JS for performance. File watching invalidates the cache:
-
 ```typescript
-if (!isProd) {
-  const watcher = require("fs").watch("./src", { recursive: true }, () => {
+if (!isProd && import.meta.main) {
+  const fs = await import("fs");
+  const watcher = fs.watch("./src", { recursive: true }, () => {
     cachedBundle = null;
+    cachedCss = null;  // Also invalidate CSS cache
   });
   process.on("exit", () => watcher.close());
 }
 ```
 
-Note: This is basic cache invalidation, not HMR. Browser refresh required after changes.
+Basic cache invalidation, not HMR. Browser refresh required.
 
 ---
 
 ## 2. Data Model
 
-### Schema
+**See `data-model.md` for complete schema, types, and access control rules.**
 
-```typescript
-// convex/schema.ts
-import { defineSchema, defineTable } from "convex/server";
-import { authTables } from "@convex-dev/auth/server";
-import { v } from "convex/values";
-
-export default defineSchema({
-  ...authTables,
-
-  calendars: defineTable({
-    name: v.string(),
-    createdBy: v.id("users"),
-    createdAt: v.number(),
-  }).index("by_createdBy", ["createdBy"]),
-
-  memberships: defineTable({
-    calendarId: v.id("calendars"),
-    userId: v.id("users"),
-    role: v.union(v.literal("owner"), v.literal("member")),
-    joinedAt: v.number(),
-  })
-    .index("by_userId", ["userId"])
-    .index("by_calendarId", ["calendarId"])
-    .index("by_userId_calendarId", ["userId", "calendarId"]),
-
-  events: defineTable({
-    calendarId: v.id("calendars"),
-    title: v.string(),
-    week: v.union(v.number(), v.null()),
-    priority: v.union(
-      v.literal("major"),
-      v.literal("big"),
-      v.literal("medium"),
-      v.literal("minor")
-    ),
-    description: v.optional(v.string()),
-    participants: v.optional(v.array(v.id("users"))),
-    createdBy: v.id("users"),
-    createdAt: v.number(),
-  }).index("by_calendarId", ["calendarId"]),
-
-  shareLinks: defineTable({
-    calendarId: v.id("calendars"),
-    token: v.string(),
-    permission: v.union(v.literal("view"), v.literal("invite")),
-    createdBy: v.id("users"),
-    createdAt: v.number(),
-    revokedAt: v.optional(v.number()),
-  })
-    .index("by_token", ["token"])
-    .index("by_calendarId", ["calendarId"]),
-});
-```
+Summary:
+- `users` — Auth-managed user records
+- `calendars` — Named calendars with owner
+- `memberships` — User-calendar links with role (owner/member)
+- `events` — Calendar events with week, priority, description
+- `shareLinks` — View/invite tokens for sharing
 
 ---
 
@@ -142,42 +86,126 @@ export default defineSchema({
 
 | Function | Args | Returns | Purpose |
 |----------|------|---------|---------|
-| `events.getEvents` | `calendarId, shareToken?` | `Event[]` | Get all events for a calendar (auth or share token) |
-| `calendars.getMyCalendars` | - | `Calendar[]` | Get all calendars user is member of (with role) |
-| `calendars.getPrimaryCalendar` | - | `Calendar \| null` | Get user's primary owned calendar |
-| `shareLinks.getCalendarShareLinks` | `calendarId` | `ShareLink[]` | Get all share links for a calendar |
-| `shareLinks.getCalendarByToken` | `token` | `{calendar, events} \| null` | Public: get calendar data by share token |
+| `events.getEvents` | `calendarId, shareToken?` | `Event[]` | Events for calendar |
+| `calendars.getMyCalendars` | — | `Calendar[]` | User's calendars with role |
+| `calendars.getPrimaryCalendar` | — | `Calendar \| null` | Primary owned calendar |
+| `shareLinks.getCalendarShareLinks` | `calendarId` | `ShareLink[]` | Calendar's share links |
+| `shareLinks.getCalendarByToken` | `token` | `{calendar, events}` | Public calendar access |
 
 ### Mutations
 
 | Function | Args | Returns | Purpose |
 |----------|------|---------|---------|
 | `events.createEvent` | `calendarId, title, week, priority, description?` | `eventId` | Create event |
-| `events.updateEvent` | `eventId, updates` | - | Update event |
-| `events.deleteEvent` | `eventId` | - | Delete event |
-| `calendars.createCalendar` | `name` | `calendarId` | Create calendar + owner membership |
-| `calendars.deleteCalendar` | `calendarId` | - | Delete calendar (owner only, cascades) |
-| `shareLinks.createShareLink` | `calendarId, permission` | `linkId` | Generate share link (12-char base62 token) |
-| `shareLinks.revokeShareLink` | `linkId` | - | Soft-delete by setting revokedAt |
-| `shareLinks.joinViaInviteLink` | `token` | `membershipId` | Join calendar via invite link |
+| `events.updateEvent` | `eventId, updates` | — | Update event |
+| `events.deleteEvent` | `eventId` | — | Delete event |
+| `calendars.createCalendar` | `name` | `calendarId` | Create calendar + membership |
+| `calendars.deleteCalendar` | `calendarId` | — | Delete (owner only, cascades) |
+| `shareLinks.createShareLink` | `calendarId, permission` | `linkId` | Generate share link |
+| `shareLinks.revokeShareLink` | `linkId` | — | Soft-delete link |
+| `shareLinks.joinViaInviteLink` | `token` | `membershipId` | Join via invite |
 
 ---
 
-## 4. Environment Variables
+## 4. Share Link Security
 
-**Bun server:** `PORT` (default: 3000), `NODE_ENV` (development/production)
+### Token Generation (CRITICAL)
 
-**Convex:** Managed via `.env.local` (auto-generated by `bunx convex dev`)
+**MUST use CSPRNG, NEVER Math.random():**
+
+```typescript
+function generateSecureToken(): string {
+  const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  const array = new Uint8Array(22);
+  crypto.getRandomValues(array);
+  return Array.from(array, b => chars[b % 62]).join('');
+}
+```
+
+**Why this matters:**
+- `Math.random()` uses a PRNG that can be predicted
+- OWASP classifies this as "Insecure Randomness" vulnerability
+- Attackers observing outputs can predict future tokens
+- `crypto.getRandomValues()` is cryptographically secure
+
+### Rate Limiting
+
+Protect `getCalendarByToken` from enumeration attacks:
+
+```typescript
+import { RateLimiter } from "convex-helpers/server/rateLimit";
+
+const rateLimiter = new RateLimiter(ctx, {
+  tokenLookup: { kind: "fixed window", rate: 10, period: "minute" },
+});
+
+// In getCalendarByToken:
+const { ok } = await rateLimiter.check("tokenLookup", clientIP);
+if (!ok) throw new Error("Rate limited");
+```
+
+**Limits:**
+- Token lookup: 10 requests/minute per IP
+- Prevents brute-force enumeration of tokens
+
+### Join Flow Edge Cases
+
+`joinViaInviteLink` must handle:
+
+| Scenario | Behavior |
+|----------|----------|
+| Valid invite token | Create membership, return `{ membershipId, calendarId }` |
+| Already a member | Return existing `{ membershipId, calendarId, alreadyMember: true }` |
+| User is owner | Return `{ membershipId, calendarId, isOwner: true }` |
+| Revoked token | Throw "Invalid or expired invite link" |
+| View-only token | Throw "This link does not allow joining" |
+
+**Return shape for frontend routing:**
+```typescript
+interface JoinResult {
+  membershipId: Id<"memberships">;
+  calendarId: Id<"calendars">;
+  calendarName: string;
+  alreadyMember?: boolean;
+  isOwner?: boolean;
+}
+```
+
+### Security References
+
+- [OWASP: Insecure Randomness](https://owasp.org/www-community/vulnerabilities/Insecure_Randomness)
+- [OWASP: Session Management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
+- [W3C: Capability URLs](https://www.w3.org/2001/tag/doc/capability-urls/)
+
+---
+
+## 5. Environment Variables
+
+**Bun server:**
+- `PORT` — Default: 3000
+- `NODE_ENV` — `development` or `production`
+
+**Convex (`.env.local`, auto-generated):**
 ```
 CONVEX_DEPLOYMENT=dev:opulent-lynx-809
 CONVEX_URL=https://opulent-lynx-809.convex.cloud
 ```
 
-**Frontend:** Convex URL configured in `src/main.tsx` (must match `CONVEX_URL` from `.env.local`)
+**Convex production (set via CLI):**
+- `SITE_URL` — `https://<deployment>.convex.site`
+- `AUTH_GOOGLE_ID` — Google OAuth client ID
+- `AUTH_GOOGLE_SECRET` — Google OAuth client secret
 
 ---
 
-## 5. Deployment
+## 6. Deployment
+
+### Convex URLs
+
+| Pattern | Example | Purpose |
+|---------|---------|---------|
+| `*.convex.cloud` | `https://zealous-hyena-667.convex.cloud` | API (queries, mutations) |
+| `*.convex.site` | `https://zealous-hyena-667.convex.site` | HTTP actions (OAuth) |
 
 ### Initial Setup
 
@@ -185,74 +213,83 @@ CONVEX_URL=https://opulent-lynx-809.convex.cloud
 # 1. Install dependencies
 bun install
 
-# 2. Deploy Convex (creates .env.local with deployment URL)
+# 2. Deploy Convex to production
 bunx convex deploy
 
-# 3. Update src/main.tsx with your Convex URL from .env.local
+# 3. Set Convex environment variables
+bunx convex env set SITE_URL https://<deployment>.convex.site --prod
+bunx convex env set AUTH_GOOGLE_ID <client-id> --prod
+bunx convex env set AUTH_GOOGLE_SECRET <client-secret> --prod
 
-# 4. Build production bundle
-bun run build
+# 4. Configure Google OAuth (Google Cloud Console)
+#    Redirect URI: https://<deployment>.convex.site/api/auth/callback/google
 
-# 5. Deploy (e.g., to Fly.io, Railway, or any Node.js host)
-# The server.ts file serves the built files in production mode
+# 5. Deploy to Fly.io
+fly deploy
 ```
 
 ### Subsequent Deploys
 
 ```bash
-# Deploy Convex functions (if changed)
-bunx convex deploy
+bunx convex deploy    # Convex functions
+fly deploy            # Frontend/server
+```
 
-# Rebuild and deploy server (if frontend/server changed)
-bun run build
-# Deploy your preferred way
+### Build Process (`build.ts`)
+
+1. Bundle `src/main.tsx` → `dist/main.js` (minified, CONVEX_URL injected)
+2. Generate `dist/index.html` (rewrite script src)
+3. Copy `src/styles.css` → `dist/styles.css`
+
+Production `server.ts` serves from `dist/`.
+
+### Fly.io Config (`fly.toml`)
+
+```toml
+[build.args]
+  CONVEX_URL = "https://zealous-hyena-667.convex.cloud"
 ```
 
 ---
 
-## 6. Local Development
+## 7. Local Development
 
 ```bash
-# Terminal 1: Start Convex dev server (uses .env.local)
+# Terminal 1: Convex dev server
 bunx convex dev
 
-# Terminal 2: Start Bun dev server
+# Terminal 2: Bun dev server
 bun run dev
 
 # Open http://localhost:3000
 ```
 
-Note: `bunx convex dev` reads from `.env.local`. The Convex URL in `src/main.tsx` should match `CONVEX_URL` from that file.
-
 ---
 
-## 7. Testing
+## 8. Testing
 
 ### Test Architecture
 
-The project uses **two test runners** due to runtime requirements:
+Two test runners due to runtime requirements:
 
 | Runner | Environment | Tests | Why |
 |--------|-------------|-------|-----|
-| `bun test` | Bun runtime | Server endpoints | Requires `Bun.serve()`, `Bun.build()` APIs |
-| `vitest` | edge-runtime | Convex functions | Required by `convex-test` library |
+| `bun test` | Bun runtime | Server | Requires `Bun.serve()`, `Bun.build()` |
+| `vitest` | edge-runtime | Convex | Required by `convex-test` |
 
-### Dependencies
+### Running Tests
 
-```json
-"devDependencies": {
-  "@edge-runtime/vm": "^4.0.0",
-  "convex-test": "^0.0.35",
-  "vitest": "^3.0.0"
-}
+```bash
+bun run test          # All tests
+bun run test:convex   # Convex only (vitest)
+bun run test:server   # Server only (bun test)
+bun run test:watch    # Watch mode
 ```
 
 ### Configuration
 
 **vitest.config.ts:**
 ```typescript
-import { defineConfig } from "vitest/config";
-
 export default defineConfig({
   test: {
     environment: "edge-runtime",
@@ -264,12 +301,14 @@ export default defineConfig({
 
 **convex/test.setup.ts:**
 ```typescript
-export const modules = import.meta.glob("./**/!(*.*.*)*.*s");
+// @ts-ignore - Vite/Vitest specific
+export const modules = import.meta.glob("./**/!(*.*.*)*.*s") as Record<
+  string,
+  () => Promise<unknown>
+>;
 ```
 
 ### Server Testability Pattern
-
-The server exports a `createServer()` function for testing:
 
 ```typescript
 export function createServer(port: number = PORT) {
@@ -277,233 +316,86 @@ export function createServer(port: number = PORT) {
   return server;
 }
 
-// Only start if run directly (not imported)
 if (import.meta.main) {
   const server = createServer();
   console.log(`Server running at http://localhost:${server.port}`);
 }
 ```
 
-Key patterns:
-- `import.meta.main` is `true` only when file is the entry point
-- Port 0 lets OS assign available port (avoids conflicts)
-- Server object has `.port` and `.stop()` for test lifecycle
+- `import.meta.main` guards against import side effects
+- Port 0 for OS-assigned ports in tests
+- Server object has `.port` and `.stop()`
 
-### Server Tests
+### Test Coverage
 
-**tests/server.test.ts:**
-```typescript
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { createServer } from "../server";
+**Server tests** (`tests/server.test.ts`):
+- All endpoints return expected status and content-type
+- PNG icons have valid signature bytes
+- Unknown paths return 404
 
-describe("server endpoints", () => {
-  let server: ReturnType<typeof createServer>;
-  let baseUrl: string;
+**Convex tests** (`convex/events.test.ts`):
+- CRUD operations return correct data
+- Access control enforced
 
-  beforeAll(() => {
-    server = createServer(0);
-    baseUrl = `http://localhost:${server.port}`;
-  });
-
-  afterAll(() => {
-    server.stop();
-  });
-
-  test("GET / returns HTML", async () => {
-    const res = await fetch(`${baseUrl}/`);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("text/html");
-    expect(await res.text()).toContain("<!DOCTYPE html>");
-  });
-
-  test("GET /src/main.tsx returns bundled JS", async () => {
-    const res = await fetch(`${baseUrl}/src/main.tsx`);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("application/javascript");
-  });
-
-  test("GET /styles.css returns CSS", async () => {
-    const res = await fetch(`${baseUrl}/styles.css`);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("text/css");
-  });
-
-  test("GET /manifest.json returns PWA manifest", async () => {
-    const res = await fetch(`${baseUrl}/manifest.json`);
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json).toHaveProperty("name");
-  });
-
-  test("GET /sw.js returns service worker", async () => {
-    const res = await fetch(`${baseUrl}/sw.js`);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("application/javascript");
-  });
-
-  test("GET /icon-192.png returns valid PNG", async () => {
-    const res = await fetch(`${baseUrl}/icon-192.png`);
-    expect(res.status).toBe(200);
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    expect(bytes.slice(0, 4)).toEqual(new Uint8Array([137, 80, 78, 71]));
-  });
-
-  test("GET /icon-512.png returns valid PNG", async () => {
-    const res = await fetch(`${baseUrl}/icon-512.png`);
-    expect(res.status).toBe(200);
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    expect(bytes.slice(0, 4)).toEqual(new Uint8Array([137, 80, 78, 71]));
-  });
-
-  test("GET /nonexistent returns 404", async () => {
-    const res = await fetch(`${baseUrl}/nonexistent`);
-    expect(res.status).toBe(404);
-  });
-});
-```
-
-### Convex Tests
-
-**convex/events.test.ts:**
-```typescript
-import { convexTest } from "convex-test";
-import { describe, test, expect } from "vitest";
-import { api } from "./_generated/api";
-import schema from "./schema";
-import { modules } from "./test.setup";
-
-describe("events", () => {
-  test("createEvent returns ID", async () => {
-    const t = convexTest(schema, modules);
-    const eventId = await t.mutation(api.events.createEvent, {
-      title: "Test Event",
-      week: 5,
-      priority: "major",
-    });
-    expect(eventId).toBeDefined();
-  });
-
-  test("createEvent and getEvents", async () => {
-    const t = convexTest(schema, modules);
-    await t.mutation(api.events.createEvent, {
-      title: "Test Event",
-      week: 5,
-      priority: "major",
-    });
-    const events = await t.query(api.events.getEvents);
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ title: "Test Event", week: 5 });
-  });
-
-  test("updateEvent modifies fields", async () => {
-    const t = convexTest(schema, modules);
-    const eventId = await t.mutation(api.events.createEvent, {
-      title: "Original",
-      week: 1,
-      priority: "minor",
-    });
-    await t.mutation(api.events.updateEvent, {
-      eventId,
-      title: "Updated",
-      priority: "major",
-    });
-    const events = await t.query(api.events.getEvents);
-    expect(events[0]).toMatchObject({ title: "Updated", priority: "major", week: 1 });
-  });
-
-  test("deleteEvent removes event", async () => {
-    const t = convexTest(schema, modules);
-    const eventId = await t.mutation(api.events.createEvent, {
-      title: "To Delete",
-      week: null,
-      priority: "medium",
-    });
-    expect(await t.query(api.events.getEvents)).toHaveLength(1);
-    await t.mutation(api.events.deleteEvent, { eventId });
-    expect(await t.query(api.events.getEvents)).toHaveLength(0);
-  });
-});
-```
-
-### Running Tests
-
-```bash
-bun run test          # Run all tests (Convex + Server)
-bun run test:convex   # Run only Convex tests (vitest)
-bun run test:server   # Run only server tests (bun test)
-bun run test:watch    # Watch mode for Convex tests
-```
+**Share link tests** (`convex/shareLinks.test.ts`):
+- Token is 22 characters (security requirement)
+- Token uses full base62 charset (not predictable)
+- Revoked tokens return null
+- Already-member join returns `alreadyMember: true`
+- Owner join returns `isOwner: true`
+- Non-owner cannot create/revoke links
+- View token cannot be used to join
+- Rate limiting blocks enumeration (if implemented)
 
 ### Lessons Learned
 
-**Friction 1: Two test runners required**
-- `convex-test` requires Vitest with edge-runtime environment
-- Server tests require Bun APIs (`Bun.serve`, `Bun.build`) unavailable in edge-runtime
-- Solution: Run `vitest` for Convex, `bun test` for server, combine in `test` script
-
-**Friction 2: CONVEX_URL undefined in tests**
-- `Bun.build({ define: { "process.env.CONVEX_URL": JSON.stringify(undefined) } })` throws
-- Solution: Conditionally add define only when env var exists:
-  ```typescript
-  const define: Record<string, string> = {};
-  if (process.env.CONVEX_URL) {
-    define["process.env.CONVEX_URL"] = JSON.stringify(process.env.CONVEX_URL);
-  }
-  ```
-
-**Friction 3: Import side effects**
-- Original server started on import, breaking test isolation
-- Solution: `import.meta.main` guard pattern (Bun/Deno standard)
-
-**Friction 4: Port conflicts in parallel tests**
-- Solution: Use port 0 for OS-assigned ports, read `server.port` after start
-
-### API Testing (via Convex Dashboard)
-
-1. Go to https://dashboard.convex.dev
-2. Select your project
-3. Use the "Functions" tab to test queries/mutations
-
-### Manual Verification
-
-```bash
-# Development mode
-bun run dev
-
-# Production mode
-bun run build
-bun run start
-
-# Verify static files served
-curl http://localhost:3000/
-curl http://localhost:3000/manifest.json
-curl http://localhost:3000/sw.js
-curl http://localhost:3000/icon-192.png --output /dev/null -w "%{http_code}\n"
+**convex-test + @convex-dev/auth:**
+- Standard `identity` option doesn't work with `getAuthUserId()`
+- Workaround: Test database operations via `t.run()`:
+```typescript
+await t.run(async (ctx) => {
+  return await ctx.db.insert("events", {...});
+});
 ```
+
+**Two test runners required:**
+- `convex-test` needs edge-runtime
+- Server tests need Bun APIs
+- Solution: Separate runners, combined `test` script
+
+**CONVEX_URL undefined in tests:**
+- `Bun.build({ define: { "process.env.CONVEX_URL": JSON.stringify(undefined) } })` throws
+- Solution: Conditionally add define
+
+**Import side effects:**
+- Server started on import, breaking tests
+- Solution: `import.meta.main` guard
+
+**Port conflicts:**
+- Solution: Port 0 for dynamic assignment
+
+**`import.meta.glob` TypeScript error:**
+- Solution: `@ts-ignore` + explicit type annotation
 
 ---
 
-## 8. Implementation Notes
+## 9. Implementation Notes
 
 ### TypeScript Quirks
 
-- Convex generated files (`convex/_generated/`) don't exist until first `bunx convex dev`
-- Run `bunx convex codegen` to generate types without starting dev server
-- Bun's Response body may need `as unknown as BodyInit` cast for Uint8Array
+- `convex/_generated/` doesn't exist until `bunx convex dev`
+- Run `bunx convex codegen` for types without dev server
+- Bun Response body may need `as unknown as BodyInit` cast
 
 ### Priority Type Alignment
-
-The Convex schema uses a string union for priority. When using the value in frontend components that expect a `Priority` type, cast explicitly:
 
 ```typescript
 const priority = event.priority as Priority;
 ```
 
-### Convex URL Configuration
+### Convex URL Injection
 
-Bun auto-loads `.env.local` and exposes variables via `process.env`. Inject the Convex URL at bundle time:
-
-**server.ts** (in `bundleApp` function):
+**server.ts:**
 ```typescript
 const result = await Bun.build({
   entrypoints: ["./src/main.tsx"],
@@ -513,30 +405,54 @@ const result = await Bun.build({
 });
 ```
 
-**src/main.tsx**:
+**src/main.tsx:**
 ```typescript
 const convex = new ConvexReactClient(process.env.CONVEX_URL!);
 ```
 
-This approach:
-- Reads from `.env.local` automatically (no manual copy)
-- Works in both dev and production
-- Fails fast if CONVEX_URL is missing
-
 ### Build Order Dependency
 
-TypeScript compilation depends on Convex generated files:
+1. `bunx convex codegen` (or `convex dev`)
+2. `bunx tsc --noEmit`
+3. `convex/_generated/` is gitignored but required
 
-1. Run `bunx convex codegen` (or `bunx convex dev`) first
-2. Then `bunx tsc --noEmit` will succeed
-3. `convex/_generated/` is gitignored but required for builds
-
-CI/CD pipelines must run codegen before type checking.
+CI must run codegen before type checking.
 
 ### Authentication
 
-Authentication uses `@convex-dev/auth` with Google OAuth:
-- Auth tables added via `authTables` spread in schema
-- All events have `createdBy: v.id("users")`
-- Multi-calendar support via `calendars` and `memberships` tables
-- All mutations verify user membership before allowing changes
+**convex/auth.ts:**
+```typescript
+import Google from "@auth/core/providers/google";
+import { convexAuth } from "@convex-dev/auth/server";
+
+export const { auth, signIn, signOut, store } = convexAuth({
+  providers: [Google],
+  callbacks: {
+    async afterUserCreatedOrUpdated(ctx, { userId, existingUserId }) {
+      if (!existingUserId) {
+        await ctx.scheduler.runAfter(0, internal.users.createPrimaryCalendar, { userId });
+      }
+    },
+  },
+});
+```
+
+**convex/auth.config.ts:**
+```typescript
+export default {
+  providers: [{
+    domain: process.env.CONVEX_SITE_URL,
+    applicationID: "convex",
+  }],
+};
+```
+
+**convex/http.ts:**
+```typescript
+import { httpRouter } from "convex/server";
+import { auth } from "./auth";
+
+const http = httpRouter();
+auth.addHttpRoutes(http);
+export default http;
+```
