@@ -9,8 +9,7 @@ dist/
 .env
 .env.local
 
-# Convex generated files
-convex/_generated/
+# Convex generated files (committed for Docker builds)
 
 # OS files
 .DS_Store

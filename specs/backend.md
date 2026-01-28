@@ -250,6 +250,27 @@ Production `server.ts` serves from `dist/`.
   CONVEX_URL = "https://zealous-hyena-667.convex.cloud"
 ```
 
+### Docker Build Requirements
+
+**Critical**: `convex/_generated/` must be available during Docker builds.
+
+Convex generates TypeScript types in `convex/_generated/` when you run `bunx convex dev` or `bunx convex codegen`. These files are required for the build but are typically gitignored.
+
+**Solution**: Do NOT exclude `convex/_generated/` from `.dockerignore`. Commit these files to git so they're available in the Docker build context.
+
+```bash
+# .dockerignore - do NOT include this line:
+# convex/_generated/   <- WRONG, breaks Docker builds
+
+# .gitignore - remove or comment out:
+# convex/_generated/   <- Must be committed for Docker builds
+```
+
+**Verify locally before deploying**:
+```bash
+docker build --build-arg CONVEX_URL=https://your-deployment.convex.cloud .
+```
+
 ---
 
 ## 7. Local Development
