@@ -2,6 +2,34 @@
 
 Single source of truth for all design tokens and magic values. Code should import from `src/lib/constants.ts` which implements these values.
 
+### Tailwind v4 Integration
+
+Design tokens are defined in `src/styles.css` using Tailwind v4's `@theme` directive:
+
+```css
+@import "tailwindcss";
+
+@theme {
+  --color-surface: #F9FAFB;
+  --color-border-light: #E5E7EB;
+  --color-border-medium: #D1D5DB;
+  --color-border-dark: #374151;
+  --color-text-primary: #111827;
+  --color-text-secondary: #374151;
+  --color-text-muted: #6B7280;
+  --color-priority-major: #E1523D;
+  --color-priority-big: #ED8B16;
+  --color-priority-medium: #C2BB00;
+  --color-priority-minor: #005E54;
+  --font-sans: "Inter", system-ui, sans-serif;
+  --shadow-node: 0 1px 3px rgba(0,0,0,0.04);
+  --shadow-hub-inset: inset 0 2px 8px rgba(0,0,0,0.06);
+  --shadow-hub-ring: 0 0 0 1px rgba(0,0,0,0.04);
+}
+```
+
+No separate config files needed—Tailwind v4 uses CSS-native configuration.
+
 ---
 
 ## Colors

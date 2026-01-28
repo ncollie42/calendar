@@ -27,7 +27,6 @@ Complete list of files to generate, in build order. Dependencies must be built b
 | `package.json` | Dependencies and scripts | — |
 | `tsconfig.json` | TypeScript configuration | — |
 | `vitest.config.ts` | Vitest configuration for Convex tests | — |
-| `postcss.config.js` | PostCSS/Tailwind configuration | — |
 
 ---
 
@@ -115,7 +114,7 @@ Build leaf components before parents. Grouped by dependency depth.
 |------|---------|--------------|
 | `src/App.tsx` | Routing, auth state, view orchestration | All components, all hooks |
 | `src/main.tsx` | React entry point, ConvexProvider | App |
-| `src/styles.css` | Global styles, Tailwind imports | constants.md |
+| `src/styles.css` | Tailwind v4 with `@theme` tokens | constants.md |
 
 ---
 

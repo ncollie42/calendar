@@ -99,9 +99,62 @@ Code blocks encoding non-obvious behavior. For each, present options:
 
 ---
 
+## Clean Bill of Health
+
+When specs are genuinely in good shape, say so. This is a valid outcome, not a cop-out.
+
+**Criteria for clean bill:**
+- No dead documentation (stale status, debugging history)
+- No obvious duplication across specs
+- Code blocks serve a purpose (exact values, gotchas, complex algorithms)
+- Prose is already punchy and dense
+
+**Clean bill format:**
+```
+## Audit Result: Clean Bill of Health
+
+Specs are in good shape. No actionable cleanup found.
+
+**What I checked:**
+- [Brief list of what was scanned]
+
+**Why no issues:** [1-2 sentences on why specs pass muster]
+```
+
+Don't invent issues to seem thorough. If it's clean, it's clean.
+
+---
+
+## Top 3 Recommendations
+
+When findings exist, lead with the highest-impact issues before the full categorized list.
+
+**Prioritize by:**
+1. Functional risk (could cause incorrect implementation)
+2. Context waste (tokens spent on noise)
+3. Maintenance burden (likely to become stale)
+
+**Format:**
+```
+## Top 3 Recommendations
+
+1. **[Category]**: [Specific issue] — [Why it matters most]
+2. **[Category]**: [Specific issue] — [Impact]
+3. **[Category]**: [Specific issue] — [Impact]
+
+---
+[Full categorized findings below]
+```
+
+---
+
 ## Interaction Model
 
-After presenting the audit:
+### When Specs Are Clean
+Present clean bill of health and stop. No need to prompt for actions.
+
+### When Findings Exist
+Lead with Top 3 Recommendations, then full categorized list:
 
 ```
 ---

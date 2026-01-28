@@ -33,11 +33,22 @@ Development mode bundles TypeScript/React on the fly. Production serves pre-buil
 | `/icon-192.png` | GET | PWA icon (192×192) |
 | `/icon-512.png` | GET | PWA icon (512×512) |
 
-**Note**: CSS requires Tailwind compilation at runtime:
+**Note**: CSS requires Tailwind v4 compilation at runtime.
+
+**Tailwind v4 Requirements:**
+1. Install both packages: `bun add -d tailwindcss @tailwindcss/cli`
+2. Use explicit binary path (NOT `bunx tailwindcss`):
 ```typescript
-const result = await $`bunx tailwindcss -i ./src/styles.css -o /dev/stdout`.text();
+const result = await $`./node_modules/.bin/tailwindcss -i ./src/styles.css -o /dev/stdout`.text();
 ```
-Raw CSS with `@tailwind` directives won't work—must compile before serving.
+3. CSS file must include `@source` directives for class detection:
+```css
+@import "tailwindcss";
+@source "./";           /* paths relative to CSS file */
+@source "../public/";
+```
+
+Raw CSS with `@import "tailwindcss"` won't work—must compile before serving.
 
 ### Dynamic Icon Generation
 
@@ -367,36 +378,6 @@ if (import.meta.main) {
 - Non-owner cannot create/revoke links
 - View token cannot be used to join
 - Rate limiting blocks enumeration (if implemented)
-
-### Lessons Learned
-
-**convex-test + @convex-dev/auth:**
-- Standard `identity` option doesn't work with `getAuthUserId()`
-- Workaround: Test database operations via `t.run()`:
-```typescript
-await t.run(async (ctx) => {
-  return await ctx.db.insert("events", {...});
-});
-```
-
-**Two test runners required:**
-- `convex-test` needs edge-runtime
-- Server tests need Bun APIs
-- Solution: Separate runners, combined `test` script
-
-**CONVEX_URL undefined in tests:**
-- `Bun.build({ define: { "process.env.CONVEX_URL": JSON.stringify(undefined) } })` throws
-- Solution: Conditionally add define
-
-**Import side effects:**
-- Server started on import, breaking tests
-- Solution: `import.meta.main` guard
-
-**Port conflicts:**
-- Solution: Port 0 for dynamic assignment
-
-**`import.meta.glob` TypeScript error:**
-- Solution: `@ts-ignore` + explicit type annotation
 
 ---
 

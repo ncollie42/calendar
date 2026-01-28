@@ -183,4 +183,4 @@ Acceptance criteria:
 **NFR-3: Data integrity**
 - All mutations require authentication
 - Users can only access calendars they own or are members of
-- Share tokens are 12-char base62, unguessable
+- Share tokens are 22-char base62, unguessable (see constants.md)
