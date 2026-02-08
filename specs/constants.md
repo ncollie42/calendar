@@ -166,11 +166,11 @@ Jan: 5, Feb: 4, Mar: 4, Apr: 5, May: 4, Jun: 5
 Jul: 4, Aug: 5, Sep: 4, Oct: 5, Nov: 4, Dec: 5
 ```
 
-Total: 54 nodes distributed, capped at 52 unique weeks.
+Total: 54 nodes distributed across months. Since a year has 52 weeks, months with boundary weeks share nodes with adjacent months. When computing week numbers, weeks that span month boundaries are assigned to the month containing Thursday (majority of days). Any month slot beyond week 52 is not rendered.
 
 ### Week Calculation
 
-- ISO-style: Monday-aligned, Week 1 contains January 1st
+- Monday-aligned, Week 1 contains January 1st (note: this differs from ISO 8601 where Week 1 contains the first Thursday)
 - 2026 Week 1: Dec 29, 2025 – Jan 4, 2026
 - Formula: `Math.floor(daysSinceWeek1Start / 7) + 1`
 
@@ -203,8 +203,13 @@ Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec
 
 ### Modal Overlay
 
-- Backdrop: 40% white
-- Blur: `backdrop-blur(4px)`
+- **Desktop (>1024px)**: Centered dialog
+  - Backdrop: 40% white with `backdrop-blur(4px)`
+- **Mobile (≤1024px)**: Full-screen takeover
+  - No backdrop (form fills screen)
+  - Height: `min-height: 100dvh` (accounts for virtual keyboard)
+  - `overflow-y: auto` for scrollable form content
+  - On input focus: `scrollIntoView({ block: "center", behavior: "smooth" })` after 300ms delay
 
 ### Opacity
 
@@ -225,9 +230,4 @@ Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec
 | URL format | `#/share/{token}` | Hash-based for SPA routing |
 | Generation | `crypto.getRandomValues()` | CSPRNG required, never Math.random() |
 
-### Token Security Requirements
-
-- **Entropy**: 22 chars × 5.95 bits = ~131 bits (exceeds OWASP 128-bit minimum)
-- **Generation**: Must use cryptographically secure random number generator
-- **Uniqueness**: Collision probability negligible at this entropy level
-- **Reference**: [W3C Capability URLs](https://www.w3.org/2001/tag/doc/capability-urls/)
+**Canonical implementation and security rationale in `data-model.md` shareLinks section.**

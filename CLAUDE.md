@@ -92,12 +92,6 @@ bun run dev      # Terminal 2 (Bun dev server)
 
 ---
 
-## macOS Notes
-
-- Use `gtimeout` instead of `timeout` for time-limited commands
-
----
-
 ## Coding Practices
 
 ### Defensive Programming
@@ -105,3 +99,4 @@ bun run dev      # Terminal 2 (Bun dev server)
 Assert aggressively. If an assumption could be wrong, assert it—inputs non-nil, values in range, invariants hold.
 
 The goal: if your mental model is wrong, crash immediately at the violation, not later with corrupted state. When something crashes, add assertions that would have caught it earlier. The assertions are the spec.
+

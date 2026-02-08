@@ -136,11 +136,20 @@ type Priority = "major" | "big" | "medium" | "minor"
 // MUST use crypto.getRandomValues(), NEVER Math.random()
 function generateSecureToken(): string {
   const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-  const array = new Uint8Array(22);
-  crypto.getRandomValues(array);
-  return Array.from(array, b => chars[b % 62]).join('');
+  let result = "";
+  while (result.length < 22) {
+    const array = new Uint8Array(32); // over-request to handle rejections
+    crypto.getRandomValues(array);
+    for (const b of array) {
+      if (result.length >= 22) break;
+      if (b < 248) result += chars[b % 62]; // reject 248-255 to eliminate modulo bias
+    }
+  }
+  return result;
 }
 ```
+
+**Why rejection sampling:** `256 % 62 = 8`, so naive `b % 62` makes chars 0-7 slightly more likely than chars 8-61. Rejecting bytes 248-255 (where `248 = 62 * 4`) ensures uniform distribution. At this entropy level the bias is not exploitable, but the fix is trivial so we do it correctly.
 
 **Why 22 characters:**
 - OWASP requires 128+ bits for security tokens

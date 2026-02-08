@@ -103,7 +103,7 @@ Build leaf components before parents. Grouped by dependency depth.
 | File | Purpose | Dependencies |
 |------|---------|--------------|
 | `src/hooks/useKeyboardShortcuts.ts` | Cmd+K, Escape handling | — |
-| `src/hooks/useMobileView.ts` | Mobile view state + history | — |
+| `src/hooks/useMobileView.ts` | Mobile view state + history (idempotent transitions, see frontend.md state table) | — |
 | `src/hooks/useTooltip.ts` | Tooltip position and visibility | — |
 
 ---
@@ -200,7 +200,12 @@ Quick reference for component props. Full behavior in frontend.md.
   onClose: () => void;
   onSave: (data: EventData) => void;
   onDelete?: () => void;       // only for edit mode
+  isMobile?: boolean;          // full-screen takeover vs centered dialog
 }
+
+// Mobile (≤1024px): Full-screen with overflow-y: auto, min-height: 100dvh
+//   - Inputs call scrollIntoView on focus (300ms delay for keyboard)
+// Desktop (>1024px): Centered floating dialog with backdrop blur
 ```
 
 ### ShareModal

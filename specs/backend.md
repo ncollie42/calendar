@@ -122,22 +122,9 @@ Summary:
 
 ### Token Generation (CRITICAL)
 
-**MUST use CSPRNG, NEVER Math.random():**
+**See `data-model.md` shareLinks section for the canonical implementation and security rationale.** The token generation function lives there to avoid drift between duplicates.
 
-```typescript
-function generateSecureToken(): string {
-  const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-  const array = new Uint8Array(22);
-  crypto.getRandomValues(array);
-  return Array.from(array, b => chars[b % 62]).join('');
-}
-```
-
-**Why this matters:**
-- `Math.random()` uses a PRNG that can be predicted
-- OWASP classifies this as "Insecure Randomness" vulnerability
-- Attackers observing outputs can predict future tokens
-- `crypto.getRandomValues()` is cryptographically secure
+Summary: 22-char base62 via `crypto.getRandomValues()`, never `Math.random()`.
 
 ### Rate Limiting
 

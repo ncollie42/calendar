@@ -35,7 +35,7 @@ All color values, typography settings, and effect values are defined in `constan
 
 ### Effects
 
-- **Modal overlay**: 40% white backdrop with `backdrop-blur(4px)`
+- **Modal overlay**: Desktop: 40% white backdrop with `backdrop-blur(4px)`. Mobile: full-screen takeover (see `constants.md` Modal Overlay)
 - **Nodes**: Outlined rounded squares; solid priority fill when event exists
 - **Shadows**: Applied per `constants.md` Effects section
 
@@ -139,7 +139,7 @@ When week has multiple events, node shows highest priority:
 - **Future weeks**: 100% opacity
 
 **Week calculation:**
-- ISO-style weeks: Monday-aligned, Week 1 contains January 1st
+- Monday-aligned, Week 1 contains January 1st (see `constants.md` Week Calculation)
 - For 2026: Week 1 starts Dec 29, 2025
 - Formula: `Math.floor(daysSinceWeek1Start / 7) + 1`
 - Calculated client-side, updates on page load only
@@ -219,6 +219,8 @@ Floating Action Button (mobile only)
 Modal
 ├── Event Form (title, week select, priority, description, delete)
 │   **Delete confirmation**: Browser `confirm()` dialog
+│   **Mobile (≤1024px)**: Full-screen takeover (not centered floating dialog)
+│   **Desktop (>1024px)**: Centered floating dialog with backdrop
 └── Share Modal
     ├── View Link section (generate/copy/revoke)
     └── Invite Link section (generate/copy/revoke)
@@ -341,17 +343,32 @@ Tooltip
 **Mobile navigation**:
 - **FAB** (calendar view): Bottom-right, 56×56px, opens events view
   - Safe area positioning: `bottom: max(1.5rem, env(safe-area-inset-bottom) + 1rem)`
+  - **Idempotent**: tapping FAB while already in events view is a no-op (guard on current view state)
 - **Back button** (events view): In header, returns to calendar
 
 **Share Link URL format**:
 - Hash-based routing: `#/share/{token}`
 - Token: 22-char base62, CSPRNG (see `constants.md`)
 
-**History API integration**:
-- Events view pushes state: `history.pushState({ view: 'events' }, '', '#events')`
-- Back button calls `history.back()`
-- `popstate` listener returns to calendar view
-- Prevents PWA from closing on back press
+**History API integration — state transition table**:
+
+Each view transition creates exactly one history entry. Repeated actions are no-ops.
+
+| Current View | Action | History Effect | New View |
+|---|---|---|---|
+| calendar | FAB tap | `pushState({ view: 'events' })` | events |
+| events | FAB tap | no-op (FAB hidden, + idempotent guard) | events |
+| events | Back button (header) | `history.back()` | calendar |
+| events | Browser back | `popstate` fires, no additional history call | calendar |
+| calendar | Browser back | default browser behavior | exit app/prev page |
+
+**Invariants**:
+- `showEvents` must guard: if already in events view, return early (prevents history stacking)
+- `showCalendar` must distinguish "closed by UI" vs "closed by browser back":
+  - UI close (header back button): calls `history.back()` to pop the entry
+  - Browser back (`popstate`): entry already popped, only update React state
+- Never call `history.back()` from within a `popstate` handler — the entry is already gone
+- `popstate` listener sets view based on `event.state`, does not push/replace
 
 **Mobile visual adjustments**:
 - Hide priority legend
@@ -392,7 +409,7 @@ Schema and types defined in `data-model.md`. This section covers frontend data f
 
 ### Week Date Display
 
-- ISO-style weeks: Monday-aligned, Week 1 contains January 1st
+- Monday-aligned, Week 1 contains January 1st (see `constants.md` Week Calculation)
 - 2026 Week 1: Dec 29, 2025 - Jan 4, 2026
 - Format: `"Dec 29 - Jan 4"` (cross-month) or `"Jan 5-11"` (same month)
 
@@ -538,6 +555,39 @@ CSS classes control which panel is visible on mobile:
     height: 100vh;
   }
 }
+```
+
+### Mobile Modal (Full-Screen Takeover)
+
+On mobile, EventModal fills the screen instead of floating centered:
+
+```css
+@media (max-width: 1024px) {
+  .event-modal {
+    /* Override centered dialog — fill screen */
+    align-items: stretch !important;
+    justify-content: stretch !important;
+    padding: 0 !important;
+    background: white !important;
+    backdrop-filter: none !important;
+  }
+  .event-modal > div {
+    max-width: 100% !important;
+    min-height: 100dvh;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow-y: auto;
+  }
+}
+```
+
+Input focus scrolling (in component):
+```typescript
+onFocus={(e) => {
+  setTimeout(() => {
+    e.target.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, 300); // Wait for keyboard animation
+}}
 ```
 
 ### Loading Spinner
