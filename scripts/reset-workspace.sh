@@ -13,7 +13,7 @@ echo ""
 echo "This will DELETE the following implementation files:"
 echo "  - src/           (React components, hooks, lib)"
 echo "  - convex/        (backend schema and functions)"
-echo "  - public/        (static files)"
+echo "  - public/        (static files, except fonts/)"
 echo "  - tests/         (server tests)"
 echo "  - server.ts      (dev server entry)"
 echo "  - build.ts       (build script)"
@@ -25,6 +25,7 @@ echo "  - specs/         (source of truth)"
 echo "  - .claude/       (workflow settings)"
 echo "  - .planning/     (todos)"
 echo "  - scripts/       (utility scripts)"
+echo "  - public/fonts/  (self-hosted Inter woff2)"
 echo "  - Config files   (package.json, tsconfig.json, etc.)"
 echo ""
 
@@ -42,12 +43,24 @@ echo "Deleting implementation files..."
 deleted=()
 
 # Directories
-for dir in src convex public tests node_modules; do
+for dir in src convex tests node_modules dist; do
     if [ -d "$dir" ]; then
         rm -rf "$dir"
         deleted+=("$dir/")
     fi
 done
+
+# public/ — delete contents but preserve fonts/
+if [ -d "public" ]; then
+    for item in public/*; do
+        basename="$(basename "$item")"
+        if [ "$basename" = "fonts" ]; then
+            continue
+        fi
+        rm -rf "$item"
+        deleted+=("$item")
+    done
+fi
 
 # Files
 for file in server.ts build.ts bun.lock; do

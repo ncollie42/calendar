@@ -1,201 +1,98 @@
-Analyze the spec files for dead documentation, self-containment, and verbosity issues.
+Audit spec files against their declared scope and the spec update rules in CLAUDE.md.
 
-## Core Philosophy: Claude-to-Claude Communication
+## Core Philosophy
 
-The spec is read by future Claude during implementation. Optimize for:
-- **Density**: Maximum information per token (context is precious)
-- **Punchiness**: Crisp, direct statements - Claude doesn't need hand-holding
-- **Signal over noise**: Only include what changes behavior
-- **Precision over verbosity**: Unambiguous > lengthy explanations
+Specs describe **observable behavior and invariants**. Implementation is derived by Claude at build time. If a spec line can only be verified by reading source code (not by using the app), it's implementation detail and should be removed.
 
-Claude understands programming. Don't explain HOW to code - explain WHAT behavior to produce and WHEN something is non-obvious.
+## Specs to Audit
 
-Example transformation:
-```
-BEFORE (verbose):
-"The token generation function must use a cryptographically secure
-random number generator. This is important because Math.random()
-uses a pseudo-random number generator that can be predicted..."
+Each file declares its scope in a preamble. Content must match:
 
-AFTER (punchy):
-"Token: 22-char base62 via CSPRNG (never Math.random - predictable)"
-```
+| File | Scope |
+|------|-------|
+| `specs/requirements.md` | What and why — never how |
+| `specs/constants.md` | Values only — no behavior, no code |
+| `specs/data-model.md` | Data shape and rules — no implementation |
+| `specs/frontend.md` | Observable behavior — no CSS/framework code |
+| `specs/backend.md` | Architecture and gotchas — no inline code |
+
+## Audit Checks
+
+### 1. Code Block Violations (highest priority)
+Specs must not contain code blocks. For each one found:
+- Extract the behavioral invariant or gotcha it encodes
+- Propose a prose replacement
+- Flag any non-obvious knowledge that must survive
+
+### 2. Scope Violations
+Content that belongs in a different spec file:
+- Data concerns in frontend.md → should be in data-model.md
+- Visual behavior in constants.md → should be in frontend.md
+- Schema details in backend.md → should be in data-model.md
+
+### 3. Duplication
+Same fact stated in multiple files. For each:
+- Identify the canonical location (using the scope table above)
+- Flag the duplicate for removal
+
+### 4. Implementation Leakage
+Signs that bug fixes were captured as code rather than invariants:
+- CSS snippets
+- Framework-specific patterns (React hooks, memo, etc.)
+- Specific API calls or library usage
+
+### 5. Self-Containment Gaps
+Missing information that would cause Claude to guess during rebuild:
+- Undefined behavior for edge cases
+- Ambiguous state transitions
+- Missing invariants for tricky interactions
 
 ## Functional Equivalence Rule
 
 **Before ANY removal, ask:**
 > "If Claude implements from the trimmed spec, will it produce the same behavior?"
 
-If uncertain, default to keeping. Removing functionality is worse than verbosity.
-
-## Specs to Analyze
-
-- `specs/frontend.md` - Frontend design specification
-- `specs/backend.md` - Backend server specification
-- `specs/requirements.md` - User stories and acceptance criteria
-- `specs/constants.md` - Design tokens
-- `specs/data-model.md` - Database schema
-- `specs/manifest.md` - File structure and build order
-
-## Audit Checks
-
-### Dead Documentation
-- Files/artifacts mentioned but never used
-- Embedded code that duplicates actual implementation files
-- Stale status/checklist sections ("Implementation Status", TODO lists)
-- "Lessons Learned" debugging history
-
-### Duplication
-- Same content across multiple specs
-- Could be replaced with cross-reference
-
-### Over-Specification
-- Code blocks where prose would suffice
-- Obvious implementation details any developer knows
-- Verbose explanations that could be 2 lines
-
-### Self-Containment Gaps
-- Missing context needed to implement
-- Unclear API contracts
-- Missing cross-references
+If uncertain, keep it. Removing functionality is worse than verbosity.
 
 ---
 
-## Output Format: Categorized by Confidence
+## Output Format
 
-Present findings in these categories:
+### Top 3 Issues
 
-### Safe Removals (high confidence)
-Issues that can definitely be removed:
-- Implementation debugging history
-- Stale status/checklist sections
-- Duplicate content that exists verbatim elsewhere
+Lead with the highest-impact findings:
 
-### Code → Prose Candidates (review carefully)
-Code blocks that could become prose. For each:
-- Show the current code block
-- Show proposed prose replacement
-- Highlight any gotchas that must be preserved
+1. **[Check type]**: [Specific issue] — [Why it matters]
+2. **[Check type]**: [Specific issue] — [Impact]
+3. **[Check type]**: [Specific issue] — [Impact]
 
-### Potential Duplication (needs cross-ref)
-Content duplicated across specs:
-- Note both locations
-- Suggest which file should be canonical
-- Propose cross-reference text
+### Full Findings
 
-### Keep (precision required)
-Explicitly call out what should NOT be touched:
-- Exact values (magic numbers, signatures, patterns)
-- Mathematical formulas
-- Security-critical specifications where prose is risky
-- Regex patterns, API formats, tricky algorithms
+Group by check type. For each finding:
+- **Location**: file + line range
+- **Problem**: what violates the rules
+- **Proposed fix**: the replacement (or removal)
 
-### Gotcha Decisions Needed
-Code blocks encoding non-obvious behavior. For each, present options:
-- **Inline callout**: Add `**Note:**` with the gotcha in prose
-- **Dedicated section**: Gotcha complex enough for its own heading
-- **Keep code**: The gotcha is best expressed in code form
-- **Create skill**: Complex enough to warrant a skill file
+### Clean Bill of Health
 
----
-
-## Clean Bill of Health
-
-When specs are genuinely in good shape, say so. This is a valid outcome, not a cop-out.
-
-**Criteria for clean bill:**
-- No dead documentation (stale status, debugging history)
-- No obvious duplication across specs
-- Code blocks serve a purpose (exact values, gotchas, complex algorithms)
-- Prose is already punchy and dense
-
-**Clean bill format:**
-```
-## Audit Result: Clean Bill of Health
-
-Specs are in good shape. No actionable cleanup found.
-
-**What I checked:**
-- [Brief list of what was scanned]
-
-**Why no issues:** [1-2 sentences on why specs pass muster]
-```
-
-Don't invent issues to seem thorough. If it's clean, it's clean.
-
----
-
-## Top 3 Recommendations
-
-When findings exist, lead with the highest-impact issues before the full categorized list.
-
-**Prioritize by:**
-1. Functional risk (could cause incorrect implementation)
-2. Context waste (tokens spent on noise)
-3. Maintenance burden (likely to become stale)
-
-**Format:**
-```
-## Top 3 Recommendations
-
-1. **[Category]**: [Specific issue] — [Why it matters most]
-2. **[Category]**: [Specific issue] — [Impact]
-3. **[Category]**: [Specific issue] — [Impact]
-
----
-[Full categorized findings below]
-```
+When specs pass all checks, say so. Don't invent issues.
 
 ---
 
 ## Interaction Model
 
-### When Specs Are Clean
-Present clean bill of health and stop. No need to prompt for actions.
-
-### When Findings Exist
-Lead with Top 3 Recommendations, then full categorized list:
-
-```
----
-Pick a number to address (1-N), or:
-- 'skip' to move on without changes
-- 'verify' to test regeneration capability of a section
-```
-
-### When User Picks a Number
-
-1. Show the current content in full
-2. Show the proposed change (removal, prose replacement, or cross-ref)
-3. For gotchas: present handling options and ask user to choose
-4. Ask for confirmation before applying
-5. Apply the change if confirmed
-6. Re-run audit to show remaining issues
-
-### Gotcha Handling Decision
-
-When a code block contains gotchas, ask:
-> "This code embeds important gotchas. How should we preserve them?"
-> 1. Inline callout (add **Note:** in prose)
-> 2. Keep code as-is (gotcha best expressed in code)
-> 3. Create skill (complex enough for dedicated skill file)
-> 4. Dedicated section (deserves its own heading)
+1. Present findings (never auto-fix)
+2. User picks a number to address
+3. Show current content → proposed change
+4. Confirm before applying
+5. Re-audit after changes
 
 ---
 
 ## Punchiness Checklist
 
-For each piece of content, ask:
+For each piece of content:
 - Does this add info Claude wouldn't already know?
 - Can this be said in fewer words without losing precision?
-- Is this explaining HOW to code (cut) or WHAT behavior (keep)?
-
----
-
-## Rules
-
-1. **Present findings first** - Never auto-fix
-2. **One issue at a time** - User picks, we address, loop
-3. **Preserve gotchas** - Non-obvious behavior must survive cleanup
-4. **Confirm before applying** - Show before/after, get explicit approval
-5. **Re-audit after changes** - Show updated issue list
+- Is this describing WHAT behavior to produce (keep) or HOW to code it (cut)?
+- Is this verifiable from using the app (keep) or only from reading source (cut)?

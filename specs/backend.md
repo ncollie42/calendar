@@ -2,9 +2,10 @@
 
 Server, deployment, and infrastructure for Event Tracker 2026.
 
+**Scope**: Architecture, deployment, testing, and infrastructure gotchas. No inline code — describe patterns and rules in prose.
+
 **Related specs:**
 - `data-model.md` — Database schema, types, access control
-- `manifest.md` — Complete file list and build order
 - `constants.md` — Design tokens used in icon generation
 
 ---
@@ -35,20 +36,35 @@ Development mode bundles TypeScript/React on the fly. Production serves pre-buil
 
 **Note**: CSS requires Tailwind v4 compilation at runtime.
 
-**Tailwind v4 Requirements:**
-1. Install both packages: `bun add -d tailwindcss @tailwindcss/cli`
-2. Use explicit binary path (NOT `bunx tailwindcss`):
-```typescript
-const result = await $`./node_modules/.bin/tailwindcss -i ./src/styles.css -o /dev/stdout`.text();
-```
-3. CSS file must include `@source` directives for class detection:
-```css
-@import "tailwindcss";
-@source "./";           /* paths relative to CSS file */
-@source "../public/";
-```
+**Tailwind v4 Gotchas:**
+- Install both `tailwindcss` and `@tailwindcss/cli` as dev dependencies
+- Must use explicit binary path `./node_modules/.bin/tailwindcss` — `bunx tailwindcss` fails silently
+- Dev server (macOS): can pipe to `/dev/stdout`. Docker builds: must write to file directly (`/dev/stdout` unavailable)
+- CSS file must include `@source` directives for class detection (paths relative to CSS file)
+- Raw CSS with `@import "tailwindcss"` won't work — must compile before serving
 
-Raw CSS with `@import "tailwindcss"` won't work—must compile before serving.
+### HTTP Cache Headers
+
+| Resource | Cache-Control | Why |
+|----------|---------------|-----|
+| HTML (`/`) | `no-cache` | Always check for updates |
+| JS (`/main.[hash].js`) | `public, max-age=31536000, immutable` | Hash changes on rebuild |
+| CSS (`/styles.css`) | `public, max-age=300` | Short cache (no hash yet) |
+| Fonts (`/fonts/*`) | `public, max-age=31536000, immutable` | Never changes |
+| Icons, manifest | `public, max-age=86400` | Stable, 24h cache |
+| `sw.js` | `no-cache` | Must always check for updates |
+
+### Asset Hashing
+
+Build script uses content hashing for JS bundles (e.g. `main.a1b2c3.js`). After build, inject the generated filename into `dist/index.html`. Content hashing + `immutable` cache header = browser never re-downloads unchanged JS.
+
+### Font Serving
+
+`/fonts/*` route serves woff2 files from `public/fonts/` with immutable cache headers (`public, max-age=31536000, immutable`). Add to the endpoint table:
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/fonts/*` | GET | Self-hosted Inter font files (woff2) |
 
 ### Dynamic Icon Generation
 
@@ -63,35 +79,11 @@ Alternative: Static PNG files in `public/`.
 
 ### Development Hot Reload
 
-```typescript
-if (!isProd && import.meta.main) {
-  const fs = await import("fs");
-  const watcher = fs.watch("./src", { recursive: true }, () => {
-    cachedBundle = null;
-    cachedCss = null;  // Also invalidate CSS cache
-  });
-  process.on("exit", () => watcher.close());
-}
-```
-
-Basic cache invalidation, not HMR. Browser refresh required.
+In dev mode, watch `./src` recursively and invalidate cached bundle + CSS on any change. Basic cache invalidation, not HMR — browser refresh required. Only run watcher when `import.meta.main` is true (not during tests).
 
 ---
 
-## 2. Data Model
-
-**See `data-model.md` for complete schema, types, and access control rules.**
-
-Summary:
-- `users` — Auth-managed user records
-- `calendars` — Named calendars with owner
-- `memberships` — User-calendar links with role (owner/member)
-- `events` — Calendar events with week, priority, description
-- `shareLinks` — View/invite tokens for sharing
-
----
-
-## 3. Convex Functions
+## 2. Convex Functions
 
 ### Queries
 
@@ -118,76 +110,37 @@ Summary:
 
 ---
 
-## 4. Share Link Security
+## 3. Share Link Security
 
-### Token Generation (CRITICAL)
-
-**See `data-model.md` shareLinks section for the canonical implementation and security rationale.** The token generation function lives there to avoid drift between duplicates.
-
-Summary: 22-char base62 via `crypto.getRandomValues()`, never `Math.random()`.
+Token generation and security invariants are canonical in `data-model.md`. This section covers server-side protections.
 
 ### Rate Limiting
 
-Protect `getCalendarByToken` from enumeration attacks:
-
-```typescript
-import { RateLimiter } from "convex-helpers/server/rateLimit";
-
-const rateLimiter = new RateLimiter(ctx, {
-  tokenLookup: { kind: "fixed window", rate: 10, period: "minute" },
-});
-
-// In getCalendarByToken:
-const { ok } = await rateLimiter.check("tokenLookup", clientIP);
-if (!ok) throw new Error("Rate limited");
-```
-
-**Limits:**
-- Token lookup: 10 requests/minute per IP
-- Prevents brute-force enumeration of tokens
+`getCalendarByToken` must be rate-limited: 10 requests/minute per IP. Use `convex-helpers/server/rateLimit` with fixed window strategy.
 
 ### Join Flow Edge Cases
 
-`joinViaInviteLink` must handle:
+`joinViaInviteLink` must handle all cases and return a result the frontend can route on:
 
 | Scenario | Behavior |
 |----------|----------|
-| Valid invite token | Create membership, return `{ membershipId, calendarId }` |
-| Already a member | Return existing `{ membershipId, calendarId, alreadyMember: true }` |
-| User is owner | Return `{ membershipId, calendarId, isOwner: true }` |
+| Valid invite token | Create membership, return membershipId + calendarId + calendarName |
+| Already a member | Return existing membership with `alreadyMember: true` |
+| User is owner | Return existing membership with `isOwner: true` |
 | Revoked token | Throw "Invalid or expired invite link" |
 | View-only token | Throw "This link does not allow joining" |
 
-**Return shape for frontend routing:**
-```typescript
-interface JoinResult {
-  membershipId: Id<"memberships">;
-  calendarId: Id<"calendars">;
-  calendarName: string;
-  alreadyMember?: boolean;
-  isOwner?: boolean;
-}
-```
-
-### Security References
-
-- [OWASP: Insecure Randomness](https://owasp.org/www-community/vulnerabilities/Insecure_Randomness)
-- [OWASP: Session Management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
-- [W3C: Capability URLs](https://www.w3.org/2001/tag/doc/capability-urls/)
-
 ---
 
-## 5. Environment Variables
+## 4. Environment Variables
 
 **Bun server:**
 - `PORT` — Default: 3000
 - `NODE_ENV` — `development` or `production`
 
-**Convex (`.env.local`, auto-generated):**
-```
-CONVEX_DEPLOYMENT=dev:opulent-lynx-809
-CONVEX_URL=https://opulent-lynx-809.convex.cloud
-```
+**Convex (`.env.local`, auto-generated by `bunx convex dev`):**
+- `CONVEX_DEPLOYMENT` — Dev deployment name
+- `CONVEX_URL` — Dev deployment URL
 
 **Convex production (set via CLI):**
 - `SITE_URL` — `https://<deployment>.convex.site`
@@ -196,7 +149,7 @@ CONVEX_URL=https://opulent-lynx-809.convex.cloud
 
 ---
 
-## 6. Deployment
+## 5. Deployment
 
 ### Convex URLs
 
@@ -233,59 +186,27 @@ bunx convex deploy    # Convex functions
 fly deploy            # Frontend/server
 ```
 
-### Build Process (`build.ts`)
+### Build Process
 
-1. Bundle `src/main.tsx` → `dist/main.js` (minified, CONVEX_URL injected)
-2. Generate `dist/index.html` (rewrite script src)
-3. Copy `src/styles.css` → `dist/styles.css`
+1. Bundle `src/main.tsx` → `dist/main.[hash].js` (minified, CONVEX_URL injected via `define`)
+2. Generate `dist/index.html` (rewrite script src to hashed filename)
+3. Compile `src/styles.css` → `dist/styles.css` via Tailwind CLI (write to file, not stdout — see Tailwind v4 Gotchas above)
 
-Production `server.ts` serves from `dist/`.
+Production server serves from `dist/`.
 
-### Fly.io Config (`fly.toml`)
+### Fly.io Config
 
-```toml
-[build.args]
-  CONVEX_URL = "https://zealous-hyena-667.convex.cloud"
-```
+`fly.toml` passes `CONVEX_URL` as a build arg.
 
-### Docker Build Requirements
+### Docker Build Gotchas
 
-**Critical**: `convex/_generated/` must be available during Docker builds.
-
-Convex generates TypeScript types in `convex/_generated/` when you run `bunx convex dev` or `bunx convex codegen`. These files are required for the build but are typically gitignored.
-
-**Solution**: Do NOT exclude `convex/_generated/` from `.dockerignore`. Commit these files to git so they're available in the Docker build context.
-
-```bash
-# .dockerignore - do NOT include this line:
-# convex/_generated/   <- WRONG, breaks Docker builds
-
-# .gitignore - remove or comment out:
-# convex/_generated/   <- Must be committed for Docker builds
-```
-
-**Verify locally before deploying**:
-```bash
-docker build --build-arg CONVEX_URL=https://your-deployment.convex.cloud .
-```
+- `convex/_generated/` must be available during Docker builds — commit these files to git
+- Do NOT add `convex/_generated/` to `.dockerignore` or `.gitignore`
+- These files are generated by `bunx convex dev` or `bunx convex codegen`
 
 ---
 
-## 7. Local Development
-
-```bash
-# Terminal 1: Convex dev server
-bunx convex dev
-
-# Terminal 2: Bun dev server
-bun run dev
-
-# Open http://localhost:3000
-```
-
----
-
-## 8. Testing
+## 6. Testing
 
 ### Test Architecture
 
@@ -296,152 +217,32 @@ Two test runners due to runtime requirements:
 | `bun test` | Bun runtime | Server | Requires `Bun.serve()`, `Bun.build()` |
 | `vitest` | edge-runtime | Convex | Required by `convex-test` |
 
-### Running Tests
+### Server Testability
 
-```bash
-bun run test          # All tests
-bun run test:convex   # Convex only (vitest)
-bun run test:server   # Server only (bun test)
-bun run test:watch    # Watch mode
-```
+Server must export a `createServer(port)` function. Production startup is guarded by `import.meta.main` so importing in tests doesn't start a server. Use port 0 for OS-assigned ports in tests.
 
-### Configuration
+### Vitest Configuration
 
-**vitest.config.ts:**
-```typescript
-export default defineConfig({
-  test: {
-    environment: "edge-runtime",
-    server: { deps: { inline: ["convex-test"] } },
-    include: ["convex/**/*.test.ts"],
-  },
-});
-```
-
-**convex/test.setup.ts:**
-```typescript
-// @ts-ignore - Vite/Vitest specific
-export const modules = import.meta.glob("./**/!(*.*.*)*.*s") as Record<
-  string,
-  () => Promise<unknown>
->;
-```
-
-### Server Testability Pattern
-
-```typescript
-export function createServer(port: number = PORT) {
-  const server = Bun.serve({ port, fetch(req) { ... } });
-  return server;
-}
-
-if (import.meta.main) {
-  const server = createServer();
-  console.log(`Server running at http://localhost:${server.port}`);
-}
-```
-
-- `import.meta.main` guards against import side effects
-- Port 0 for OS-assigned ports in tests
-- Server object has `.port` and `.stop()`
+- Environment: `edge-runtime`
+- Inline deps: `convex-test`
+- Include: `convex/**/*.test.ts`
+- Requires a `convex/test.setup.ts` that exports module glob for convex-test
 
 ### Test Coverage
 
-**Server tests** (`tests/server.test.ts`):
-- All endpoints return expected status and content-type
-- PNG icons have valid signature bytes
-- Unknown paths return 404
+**Server tests**: All endpoints return expected status/content-type, PNG icons have valid signatures, unknown paths return 404.
 
-**Convex tests** (`convex/events.test.ts`):
-- CRUD operations return correct data
-- Access control enforced
+**Convex event tests**: CRUD operations, access control enforced.
 
-**Share link tests** (`convex/shareLinks.test.ts`):
-- Token is 22 characters (security requirement)
-- Token uses full base62 charset (not predictable)
-- Revoked tokens return null
-- Already-member join returns `alreadyMember: true`
-- Owner join returns `isOwner: true`
-- Non-owner cannot create/revoke links
-- View token cannot be used to join
-- Rate limiting blocks enumeration (if implemented)
+**Share link tests**: Token length (22 chars), full charset, revoked tokens return null, all join edge cases (already member, is owner, view-only token, non-owner restrictions).
 
 ---
 
-## 9. Implementation Notes
+## 7. Implementation Gotchas
 
-### TypeScript Quirks
-
-- `convex/_generated/` doesn't exist until `bunx convex dev`
-- Run `bunx convex codegen` for types without dev server
+- `convex/_generated/` doesn't exist until `bunx convex dev` or `bunx convex codegen` — CI must run codegen before type checking
 - Bun Response body may need `as unknown as BodyInit` cast
-
-### Priority Type Alignment
-
-```typescript
-const priority = event.priority as Priority;
-```
-
-### Convex URL Injection
-
-**server.ts:**
-```typescript
-const result = await Bun.build({
-  entrypoints: ["./src/main.tsx"],
-  define: {
-    "process.env.CONVEX_URL": JSON.stringify(process.env.CONVEX_URL),
-  },
-});
-```
-
-**src/main.tsx:**
-```typescript
-const convex = new ConvexReactClient(process.env.CONVEX_URL!);
-```
-
-### Build Order Dependency
-
-1. `bunx convex codegen` (or `convex dev`)
-2. `bunx tsc --noEmit`
-3. `convex/_generated/` is gitignored but required
-
-CI must run codegen before type checking.
-
-### Authentication
-
-**convex/auth.ts:**
-```typescript
-import Google from "@auth/core/providers/google";
-import { convexAuth } from "@convex-dev/auth/server";
-
-export const { auth, signIn, signOut, store } = convexAuth({
-  providers: [Google],
-  callbacks: {
-    async afterUserCreatedOrUpdated(ctx, { userId, existingUserId }) {
-      if (!existingUserId) {
-        await ctx.scheduler.runAfter(0, internal.users.createPrimaryCalendar, { userId });
-      }
-    },
-  },
-});
-```
-
-**convex/auth.config.ts:**
-```typescript
-export default {
-  providers: [{
-    domain: process.env.CONVEX_SITE_URL,
-    applicationID: "convex",
-  }],
-};
-```
-
-**convex/http.ts:**
-```typescript
-import { httpRouter } from "convex/server";
-import { auth } from "./auth";
-
-const http = httpRouter();
-auth.addHttpRoutes(http);
-export default http;
-```
+- CONVEX_URL is injected at bundle time via `define` in `Bun.build()`, accessed as `process.env.CONVEX_URL` in client code
+- Auth uses `@convex-dev/auth` with Google provider. On first user creation, `afterUserCreatedOrUpdated` callback schedules primary calendar creation via `ctx.scheduler.runAfter`
+- Auth config points to `CONVEX_SITE_URL` domain with applicationID "convex"
+- HTTP router must register auth routes via `auth.addHttpRoutes(http)`

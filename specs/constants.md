@@ -1,34 +1,32 @@
 # Constants
 
-Single source of truth for all design tokens and magic values. Code should import from `src/lib/constants.ts` which implements these values.
+Single source of truth for all design tokens and magic values.
 
-### Tailwind v4 Integration
+**Scope**: Values only. No behavior, no implementation. Behavior that uses these tokens lives in `frontend.md`.
 
-Design tokens are defined in `src/styles.css` using Tailwind v4's `@theme` directive:
+### Tailwind v4 CSS Variable Mapping
 
-```css
-@import "tailwindcss";
+Tokens are exposed as CSS custom properties via Tailwind v4's `@theme` directive in `src/styles.css`. The CSS variable names follow the pattern `--color-{token}` for colors, `--font-{token}` for fonts, `--shadow-{token}` for shadows:
 
-@theme {
-  --color-surface: #F9FAFB;
-  --color-border-light: #E5E7EB;
-  --color-border-medium: #D1D5DB;
-  --color-border-dark: #374151;
-  --color-text-primary: #111827;
-  --color-text-secondary: #374151;
-  --color-text-muted: #6B7280;
-  --color-priority-major: #E1523D;
-  --color-priority-big: #ED8B16;
-  --color-priority-medium: #C2BB00;
-  --color-priority-minor: #005E54;
-  --font-sans: "Inter", system-ui, sans-serif;
-  --shadow-node: 0 1px 3px rgba(0,0,0,0.04);
-  --shadow-hub-inset: inset 0 2px 8px rgba(0,0,0,0.06);
-  --shadow-hub-ring: 0 0 0 1px rgba(0,0,0,0.04);
-}
-```
+| Token | CSS Variable |
+|-------|-------------|
+| `surface` | `--color-surface` |
+| `borderLight` | `--color-border-light` |
+| `borderMedium` | `--color-border-medium` |
+| `borderDark` | `--color-border-dark` |
+| `textPrimary` | `--color-text-primary` |
+| `textSecondary` | `--color-text-secondary` |
+| `textMuted` | `--color-text-muted` |
+| `priorityMajor` | `--color-priority-major` |
+| `priorityBig` | `--color-priority-big` |
+| `priorityMedium` | `--color-priority-medium` |
+| `priorityMinor` | `--color-priority-minor` |
+| Font family | `--font-sans` = `"Inter", system-ui, sans-serif` |
+| Node shadow | `--shadow-node` |
+| Hub inset shadow | `--shadow-hub-inset` |
+| Hub ring shadow | `--shadow-hub-ring` |
 
-No separate config files needed—Tailwind v4 uses CSS-native configuration.
+This enables Tailwind utilities like `bg-surface`, `text-text-primary`, `border-border-light`, etc.
 
 ---
 
@@ -39,13 +37,13 @@ No separate config files needed—Tailwind v4 uses CSS-native configuration.
 | Token | Hex | Usage |
 |-------|-----|-------|
 | `background` | `#FFFFFF` | Modals, pure white surfaces |
-| `surface` | `#F9FAFB` | Sidebar, canvas, cards |
-| `borderLight` | `#E5E7EB` | Cards, dividers, empty nodes |
-| `borderMedium` | `#D1D5DB` | Input borders |
+| `surface` | `#FAF9F7` | Sidebar, canvas, cards (warm linen) |
+| `borderLight` | `#E8E6E3` | Cards, dividers, empty nodes (warm border) |
+| `borderMedium` | `#D4D1CC` | Input borders (warm input border) |
 | `borderDark` | `#374151` | Hover states, emphasis |
 | `textPrimary` | `#111827` | Headers, important text |
 | `textSecondary` | `#374151` | Body text |
-| `textMuted` | `#6B7280` | Captions, labels |
+| `textMuted` | `#8B8579` | Captions, labels (warm muted) |
 
 ### Priority Colors
 
@@ -111,6 +109,12 @@ When a week has multiple events, the node displays the highest priority color.
 | `hoverEasing` | `cubic-bezier(0.34, 1.56, 0.64, 1)` | Bouncy scale effect |
 | `collapseTransition` | `300ms ease-out` | Section expand/collapse |
 | `tooltipFade` | `150ms` | Tooltip show/hide |
+| `nodeStaggerDelay` | `8ms` | Per-node entrance delay |
+| `nodeEntranceDuration` | `400ms` | Node scale-in animation |
+| `nodeEntranceEasing` | `cubic-bezier(0.16, 1, 0.3, 1)` | Expo-out for entrance |
+| `currentWeekPulse` | `3s ease-in-out infinite` | Breathing glow cycle |
+| `hubCrossfade` | `200ms ease` | Hub text transition on hover |
+| `cardLiftDuration` | `150ms ease` | Event card hover lift |
 
 ---
 
@@ -118,9 +122,19 @@ When a week has multiple events, the node displays the highest priority color.
 
 ### Font
 
-- **Family:** Inter (Google Fonts)
-- **Weights:** 400 (Regular), 500 (Medium), 700 (Bold)
-- **Loading:** `display=swap`
+- **Family:** Inter (self-hosted)
+- **Weights:** 400 (Regular), 500 (Medium), 600 (SemiBold), 700 (Bold)
+- **Loading:** `@font-face` in `src/styles.css`, preload weight 400 in HTML
+- **Source:** [Inter releases](https://github.com/rsms/inter/releases)
+
+#### Font Files
+
+| Weight | File | Size |
+|--------|------|------|
+| 400 | `public/fonts/inter-400.woff2` | ~95KB |
+| 500 | `public/fonts/inter-500.woff2` | ~97KB |
+| 600 | `public/fonts/inter-600.woff2` | ~97KB |
+| 700 | `public/fonts/inter-700.woff2` | ~97KB |
 
 ### Scale
 
@@ -195,11 +209,11 @@ Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec
 
 | Usage | Value |
 |-------|-------|
-| Nodes | `0 1px 3px rgba(0,0,0,0.04)` |
+| Nodes | `0 1px 3px rgba(120,100,80,0.06)` |
 | Cards | `shadow-sm` (Tailwind) |
 | Modals | `shadow-xl` (Tailwind) |
-| Hub (inset) | `inset 0 2px 8px rgba(0,0,0,0.06)` |
-| Hub (ring) | `0 0 0 1px rgba(0,0,0,0.04)` |
+| Hub (inset) | `inset 0 2px 8px rgba(120,100,80,0.07)` |
+| Hub (ring) | `0 0 0 1px rgba(120,100,80,0.05)` |
 
 ### Modal Overlay
 
@@ -219,15 +233,11 @@ Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec
 | Future weeks | 100% |
 | Current week | 100% + 3px border |
 
----
+### Current Week Glow
 
-## Share Links
+Soft animated ring behind the current week node:
+- SVG filter: `feGaussianBlur` with `stdDeviation="3"` on a textPrimary-colored circle
+- Animation: opacity pulses 0.15 → 0.4 over `currentWeekPulse` duration
+- Renders behind the node visual (lower z-order within the `<g>`)
+- Only the single current-week node, not a class on all nodes
 
-| Property | Value | Notes |
-|----------|-------|-------|
-| Token length | 22 characters | 128+ bits entropy (OWASP minimum) |
-| Token charset | Base62 (`[a-zA-Z0-9]`) | ~5.95 bits per character |
-| URL format | `#/share/{token}` | Hash-based for SPA routing |
-| Generation | `crypto.getRandomValues()` | CSPRNG required, never Math.random() |
-
-**Canonical implementation and security rationale in `data-model.md` shareLinks section.**

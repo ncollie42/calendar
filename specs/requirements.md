@@ -37,6 +37,15 @@ Acceptance criteria:
 - [ ] Failed auth shows error, allows retry
 - [ ] Session persists across browser refreshes
 
+**US-1b: See account and sign out**
+> As a user, I want to see which Google account I'm signed in with and be able to sign out.
+
+Acceptance criteria:
+- [ ] Signed-in email and Google avatar visible in sidebar
+- [ ] Sign out button next to account info
+- [ ] Sign out returns to auth screen
+- [ ] Sign out from shared calendar view returns to auth screen but preserves the share URL so the user can still view (if view-only)
+
 ---
 
 ### Calendar Management

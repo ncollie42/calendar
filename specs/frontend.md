@@ -2,16 +2,17 @@
 
 UI behavior, interactions, and component structure for Event Tracker 2026.
 
+**Scope**: Observable behavior only. No CSS blocks, no framework code, no implementation details. Describe what the user sees and how the app responds — Claude derives the implementation.
+
 **Related specs:**
 - `constants.md` — All design tokens (colors, geometry, timing)
 - `data-model.md` — Database schema and types
-- `manifest.md` — File list and component interfaces
 
 ---
 
 ## 1. Design Philosophy
 
-**Geometric Minimalism**: Mathematical symmetry, high-utility data visualization, restrained monochromatic palette.
+**Warm Geometric Minimalism**: Mathematical symmetry meets human warmth. The radial visualization is the hero — surrounding UI serves it with a warm, personality-driven aesthetic. Neutral surfaces use warm grays (cream/linen family), shadows use warm brown tints. The interface should feel handcrafted, not clinical.
 
 **Layout Zones**:
 - **Sidebar (Input Zone)**: Event creation, list management, legend
@@ -32,19 +33,13 @@ All color values, typography settings, and effect values are defined in `constan
 - **Current week**: 3px `textPrimary` border
 - **Past weeks**: 65% opacity
 - **Hover states**: Border darkens to `borderDark`
+- **Warm undertone philosophy**: All neutral surfaces use warm grays instead of cool grays. Shadows use warm brown tints (`rgba(120,100,80,...)`) instead of pure black. See `constants.md` for exact values.
 
 ### Effects
 
 - **Modal overlay**: Desktop: 40% white backdrop with `backdrop-blur(4px)`. Mobile: full-screen takeover (see `constants.md` Modal Overlay)
 - **Nodes**: Outlined rounded squares; solid priority fill when event exists
 - **Shadows**: Applied per `constants.md` Effects section
-
-**Inline style caveat**: Tailwind utilities like `ringColor` aren't valid CSS properties. Use CSS variable syntax:
-```typescript
-style={{
-  "--tw-ring-color": getPriorityColor(p),
-} as React.CSSProperties}
-```
 
 ---
 
@@ -56,8 +51,8 @@ Geometry values (radii, sizes, offsets) are defined in `constants.md`. This sect
 
 - SVG viewBox is fixed at 700×700, center at (350, 350)
 - **Responsive sizing**: Container uses CSS to scale proportionally
-  - Desktop (>1024px): `max-width: 700px`, centered in canvas area
-  - Mobile (≤1024px): `width: min(100vw - 32px, 100vh - 32px)` to fit viewport
+  - Desktop (>1024px): `width: min(calc(100vh - 64px), 700px)`, centered in canvas area. Height is the primary size driver since desktop screens are landscape (32px effective margin top/bottom).
+  - Mobile (≤1024px): `width: min(100vw - 16px, 100vh - 16px)` to fit viewport (8px margin each side — SVG has internal padding so outer margin can be tight)
   - Aspect ratio maintained via `aspect-ratio: 1` on container
   - SVG fills container with `width: 100%; height: 100%`
 
@@ -68,15 +63,7 @@ Geometry values (radii, sizes, offsets) are defined in `constants.md`. This sect
 
 ### Week Node Position Algorithm
 
-```javascript
-angleDeg = month * 30 - 90
-radius = INNER_RADIUS + (weekInMonth / (weeksInMonth - 1)) * (OUTER_RADIUS - INNER_RADIUS)
-x = CENTER + radius * cos(angleDeg * PI/180)
-y = CENTER + radius * sin(angleDeg * PI/180)
-nodeRotation = angleDeg + 90  // Align with spoke
-```
-
-Week distribution per month defined in `constants.md` (54 total nodes, capped at 52 unique weeks).
+Each month's spoke is at `month * 30 - 90` degrees (January at top). Nodes are distributed linearly along the spoke from `innerRadius` to `outerRadius` based on their position within the month's week count. Each node rotates to align with its spoke (angle + 90°). Week distribution per month defined in `constants.md` (54 total nodes, capped at 52 unique weeks).
 
 ### Month Labels
 
@@ -101,6 +88,13 @@ Week distribution per month defined in `constants.md` (54 total nodes, capped at
   - Top line: "2026" (bold)
   - Bottom line: "Week X of 52" (current week progress)
 
+**Hover-aware crossfade (desktop only):**
+- When user hovers any week node, the hub's "Week X of 52" text crossfades to show the hovered week number instead
+- Transition: `hubCrossfade` duration (200ms ease)
+- On mouse-out, crossfades back to actual current week
+- Mobile: no crossfade, hub stays static
+- Implementation: Hub receives optional `hoveredWeek` prop
+
 ---
 
 ## 4. Interactions
@@ -108,7 +102,7 @@ Week distribution per month defined in `constants.md` (54 total nodes, capped at
 ### Hover States
 
 - **Nodes**: 1.2× scale, border darkens to `borderDark`
-- **Cards**: Background lightens
+- **Cards**: Lift effect — `translateY(-1px)` + shadow increase (`shadow-sm` → `shadow-md`). Duration: `cardLiftDuration`.
 - **Transitions**: Bouncy easing (see `constants.md` Timing)
 
 ### Node Hover Stability
@@ -118,13 +112,11 @@ Node hover effects must use a **stable hitbox pattern** to prevent flickering:
 - **Outer element (hitbox)**: Fixed `hitboxSize`, handles positioning/rotation, receives pointer events
 - **Inner element (visual)**: `nodeSize`, performs visual transforms, has `pointer-events: none`
 
-**Implementation requirements**:
+**Invariants**:
 - Hitbox element must not change dimensions on hover
 - All visual transforms apply to inner element only
-- `transform-origin: center` on visual element
-- **SVG**: Use `transform-box: fill-box` so transform-origin references element's bounding box
-- **SVG**: Set `pointer-events="all"` on hitbox rects with transparent fill
-- **SVG**: Use `element.setAttribute('class', ...)` to reset classes (not `className`)
+- Transform origin must be center of the visual element
+- In SVG: hitbox needs explicit pointer-events with transparent fill; visual element has pointer-events disabled
 
 ### Priority Ranking
 
@@ -134,7 +126,8 @@ When week has multiple events, node shows highest priority:
 ### Current Week Indicator
 
 **Visual treatment:**
-- **Current week node**: 3px `textPrimary` border (regardless of fill state)
+- **Current week node**: 3px `textPrimary` border (regardless of fill state) + animated glow ring
+- **Glow ring**: SVG blur filter creating a soft halo that pulses (opacity 0.15→0.4 over `currentWeekPulse` duration). See `constants.md` Current Week Glow.
 - **Past weeks**: 65% opacity
 - **Future weeks**: 100% opacity
 
@@ -150,29 +143,27 @@ When week has multiple events, node shows highest priority:
 - Clicking a node opens event modal with that week pre-selected
 
 **Touch devices (pointer: coarse)**:
-- Tapping a node shows tooltip (week info, date range, event list)
-- Tooltip anchored near tapped node
-- Tap anywhere to dismiss
-- Event creation via "Add Event" button only
+- Tapping a node shows tooltip anchored near the node
+- Tooltip persists until user taps outside any node
+- Tapping the same node again does NOT dismiss (not a toggle)
+- Tapping a different node moves the tooltip to that node
+- Event creation via "Add Event" button only (node taps never open modal on touch)
 
-**Implementation**: Event delegation on SVG element:
-- `touchstart` → show tooltip, `preventDefault()` to block click
-- `click` → open modal (only fires on non-touch)
-- `touchstart` on document → dismiss tooltip if outside node
-
-Use `{ passive: false }` for `preventDefault()` to work.
+**Touch vs click discrimination**: On touch devices, tapping a node must show tooltip without opening the modal. Use a touch-active flag: touch sets it, click checks it — if set from touch, suppress the modal. Tapping anywhere outside week nodes dismisses the tooltip (including areas outside the SVG canvas).
 
 ### Tooltips
 
-- **Desktop**: Mouse-follow (12px offset), fade 150ms
-- **Touch**: Anchored near node, persists until dismissed
-- **Content**: Week N, Month, Date range, Event list
+- **Desktop**: Mouse-follow (12px offset), fade in/out 150ms
+- **Touch**: Anchored near node, persists until tap outside node dismisses it
+- **Content**: Week N, Date range, Event list (with priority dots)
 
-**SVG implementation**:
-- Event delegation on SVG parent, not individual nodes
-- Use `mouseover`/`mouseout` (which bubble)
-- Use `element.closest('.node-hitbox')` to find hovered node
-- Toggle visibility via CSS class
+**Desktop dismiss behavior:**
+- Tooltip hides when mouse leaves the node hitbox
+- 100ms grace period before starting fade-out (cancel if mouse enters another node)
+- This prevents flicker when sliding between adjacent nodes
+- Moving mouse within the same node (between child SVG elements) must NOT trigger hide
+
+**SVG tooltip delegation**: Use event delegation on the SVG parent (not individual nodes) with pointer events. When the pointer moves between child elements within the same node, the tooltip must NOT flicker — check that the pointer is actually leaving the node's hitbox, not just moving between its children. Track cursor position for desktop tooltip follow.
 
 ### Keyboard
 
@@ -183,8 +174,6 @@ Use `{ passive: false }` for `preventDefault()` to work.
 ---
 
 ## 5. Components
-
-Component props interfaces are defined in `manifest.md`.
 
 ```
 Sidebar
@@ -205,16 +194,30 @@ Sidebar
 ├── ── [divider] ──
 ├── Backlog (collapsible, default: collapsed)
 │   └── Unscheduled event cards
-└── Priority Legend (desktop only)
+├── Priority Legend (desktop only, scrolls with content)
+└── Account Bar (sticky bottom)
+    ├── Google avatar (32px circle, fallback: first letter of email on surface background)
+    ├── Email address (truncated with ellipsis if overflow)
+    └── "Sign out" text button (textMuted, right-aligned)
 
 Canvas
+├── Calendar Name Pill (mobile only, fixed top, frosted glass)
+│     Centered floating pill matching bottom bar aesthetic
+│     Fixed position with safe-area-inset-top respect
+│     Font: text-base (16px), font-medium, text-secondary
 ├── Month Divider Lines (SVG, z-index: 0)
 ├── Week Nodes (52 nodes across 12 spokes)
 ├── Month Labels (rotated text)
 └── Center Hub
 
-Floating Action Button (mobile only)
-└── Opens events view from calendar view
+Bottom Bar (mobile only)
+├── Translucent pill anchored to bottom center
+├── Frosted glass: backdrop-blur(12px), rgba(250,249,247,0.85) background
+├── Rounded-full with subtle borderLight border, shadow-lg
+├── Content (left to right):
+│   ├── "Add Event" button (primary action → opens event modal)
+│   └── View toggle icon (list ↔ calendar, tap toggles mobile view in both directions)
+└── Safe area: bottom: max(1rem, env(safe-area-inset-bottom) + 0.5rem)
 
 Modal
 ├── Event Form (title, week select, priority, description, delete)
@@ -239,21 +242,7 @@ SharedCalendarView (public view via share token)
 - Persistent "link active" vs "no link" indicator
 - Copy button shows "Copied!" for 2s, then reverts
 
-**Clipboard handling:**
-```typescript
-async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    // Fallback: select input text, prompt manual copy
-    inputRef.current?.select();
-    return false;
-  }
-}
-```
-- On failure: select input text + show "Press Ctrl+C to copy"
-- Never fail silently
+**Clipboard handling:** Try `navigator.clipboard.writeText()` first. On failure, fall back to selecting input text and showing "Press Ctrl+C to copy". Never fail silently.
 
 ### Join Flow States
 
@@ -277,48 +266,21 @@ SharedCalendarView must handle all user states:
 
 ### Real-time Revocation Handling
 
-Since Convex queries are reactive, SharedCalendarView auto-updates when link is revoked:
-
-```typescript
-// Track previous state to detect revocation
-const prevDataRef = useRef(data);
-
-useEffect(() => {
-  if (data === null && prevDataRef.current !== null) {
-    // Link was just revoked while viewing
-    // Show "Access has been revoked" (not "Invalid link")
-  }
-  prevDataRef.current = data;
-}, [data]);
-```
-
-**User sees:**
+Since Convex queries are reactive, SharedCalendarView auto-updates when a link is revoked. The view must distinguish between "was valid, now revoked" vs "was never valid":
 - Valid → Revoked: "Access to this calendar has been revoked"
 - Never valid: "This link is invalid or has expired"
 
+Track previous data state to detect the transition.
+
 ### Token URL Privacy
 
-After SharedCalendarView loads successfully, sanitize URL:
+After SharedCalendarView loads successfully, replace the URL to remove the token (e.g. `history.replaceState` to `#/shared`). This prevents token exposure in browser history, bookmarks, and screenshots.
 
-```typescript
-useEffect(() => {
-  if (data) {
-    // Remove token from URL bar, history, bookmarks, screenshots
-    history.replaceState(null, '', '#/shared');
-  }
-}, [data]);
-```
+### EventCard Visual Treatment
 
-**Why:**
-- Prevents token appearing in browser history
-- Prevents accidental sharing via screenshots
-- Prevents bookmarking with token exposed
-- Reference: [W3C Capability URLs](https://www.w3.org/2001/tag/doc/capability-urls/)
-
-Tooltip
-├── Desktop: floating, mouse-follow
-└── Touch: anchored near node, tap to dismiss
-```
+- **Left border accent**: 3px left border in the event's priority color, always visible
+- **Hover lift**: Card lifts `translateY(-1px)`, shadow increases to `shadow-md`, border accent at full opacity. Duration: `cardLiftDuration`.
+- **"Now" divider**: In the Scheduled section, a subtle horizontal divider "— Now —" between past-week events and current/future-week events. `textMuted` color, `text-xs`, centered. Only shown when there are both past and future events in the list.
 
 ### Collapsible Sections
 
@@ -328,6 +290,34 @@ Tooltip
 - State persisted in localStorage key `sidebarCollapseState`
 - Sections collapse independently
 
+### Account Bar
+
+Sticky bar pinned to the bottom of the sidebar, always visible regardless of scroll position. Separated from scrollable content by a `borderLight` top border.
+
+**Content (left to right):**
+- Google avatar: 32px circle. If no image URL or image fails to load, show first letter of email on a `borderLight` background circle with `textMuted` color.
+- Email: `text-xs`, `textSecondary`, truncated with ellipsis. Takes remaining horizontal space.
+- "Sign out": `text-xs`, `textMuted`, right-aligned. No confirmation dialog — sign out is low-stakes and reversible (sign back in).
+
+**After sign-out:**
+- If on main app: redirect to auth screen.
+- If on shared calendar view (view-only): stay on shared view (no auth required). Remove any stale membership UI.
+
+**Mobile:** Same layout. Account bar visible in events view (sidebar). Not visible in calendar view (canvas only).
+
+### Empty State Personality
+
+Empty states use warm, encouraging copy:
+
+| Location | Copy |
+|----------|------|
+| Scheduled section (0 events) | "Your year is wide open" |
+| Backlog section (0 events) | "Nothing waiting — add ideas as they come" |
+| First-time user (0 events total) | "Start with one event — what's the first thing you're looking forward to?" |
+
+**Micro-celebration on first event:**
+When user creates their very first event (0→1), the filled node plays an emphasized entrance: `scale(0) → scale(1.3) → scale(1)` with priority color flooding in. Duration 500ms, easing: `hoverEasing` (bouncy). Subsequent creates have no special animation.
+
 ### Responsive Layout
 
 | Breakpoint | Layout |
@@ -335,16 +325,26 @@ Tooltip
 | >1024px | 25% sidebar (280-360px) / 75% canvas |
 | ≤1024px | Full-screen toggle views |
 
+**Desktop layout (>1024px)**:
+- Root container: `height: 100vh` (viewport-locked, NOT `min-height`)
+- Sidebar: `height: 100vh`, `overflow-y: auto` (scrolls independently)
+- Canvas: `height: 100vh`, `overflow: hidden` (calendar centered, never scrolls)
+- This prevents the sidebar's content length from expanding the page and pushing the calendar down
+
 **Mobile layout (≤1024px)**:
 - Two full-screen views via CSS classes on `#app`:
   - `mobile-view-calendar` (default): Full-screen radial calendar
   - `mobile-view-events`: Full-screen sidebar
 
 **Mobile navigation**:
-- **FAB** (calendar view): Bottom-right, 56×56px, opens events view
-  - Safe area positioning: `bottom: max(1.5rem, env(safe-area-inset-bottom) + 1rem)`
-  - **Idempotent**: tapping FAB while already in events view is a no-op (guard on current view state)
-- **Back button** (events view): In header, returns to calendar
+- **Bottom bar** (both views): Translucent pill at bottom center with frosted glass effect
+  - Always visible on mobile (calendar view AND events view)
+  - Contains: "Add Event" + view toggle icon
+  - View toggle is a **bidirectional toggle**: calendar → events, events → calendar
+  - `showEvents` guards: if already in events view, return early (prevents history stacking)
+  - `showCalendar` guards: if already in calendar view, return early
+  - Safe area: `bottom: max(1rem, env(safe-area-inset-bottom) + 0.5rem)`
+- **Back button** (events view): In header, also returns to calendar (alternative to toggle)
 
 **Share Link URL format**:
 - Hash-based routing: `#/share/{token}`
@@ -356,8 +356,8 @@ Each view transition creates exactly one history entry. Repeated actions are no-
 
 | Current View | Action | History Effect | New View |
 |---|---|---|---|
-| calendar | FAB tap | `pushState({ view: 'events' })` | events |
-| events | FAB tap | no-op (FAB hidden, + idempotent guard) | events |
+| calendar | Bottom bar toggle tap | `pushState({ view: 'events' })` | events |
+| events | Bottom bar toggle tap | `history.back()` (pops the events entry) | calendar |
 | events | Back button (header) | `history.back()` | calendar |
 | events | Browser back | `popstate` fires, no additional history call | calendar |
 | calendar | Browser back | default browser behavior | exit app/prev page |
@@ -380,32 +380,14 @@ Each view transition creates exactly one history entry. Repeated actions are no-
 
 **Safe area support**:
 - Viewport meta: `viewport-fit=cover`
-- FAB uses `env(safe-area-inset-*)` values
+- Bottom bar uses `env(safe-area-inset-*)` values
 - SVG has `touch-action: manipulation`
 
 ---
 
 ## 6. Data Layer
 
-Schema and types defined in `data-model.md`. This section covers frontend data flow.
-
-### Convex Hooks
-
-| Hook | Purpose |
-|------|---------|
-| `useQuery(api.events.getEvents)` | Fetch events for calendar |
-| `useMutation(api.events.createEvent)` | Create event |
-| `useMutation(api.events.updateEvent)` | Update event |
-| `useMutation(api.events.deleteEvent)` | Delete event |
-| `useQuery(api.calendars.getMyCalendars)` | Fetch user's calendars |
-| `useQuery(api.calendars.getPrimaryCalendar)` | Fetch primary calendar |
-| `useMutation(api.calendars.createCalendar)` | Create calendar |
-| `useMutation(api.calendars.deleteCalendar)` | Delete calendar |
-| `useQuery(api.shareLinks.getCalendarShareLinks)` | Fetch share links |
-| `useQuery(api.shareLinks.getCalendarByToken)` | Fetch via share token |
-| `useMutation(api.shareLinks.createShareLink)` | Generate link |
-| `useMutation(api.shareLinks.revokeShareLink)` | Revoke link |
-| `useMutation(api.shareLinks.joinViaInviteLink)` | Join via invite |
+Schema, types, and Convex functions are defined in `data-model.md` and `backend.md`. The frontend uses Convex's reactive queries and mutations — data updates in real-time without manual refetching.
 
 ### Week Date Display
 
@@ -416,6 +398,15 @@ Schema and types defined in `data-model.md`. This section covers frontend data f
 ---
 
 ## 7. Loading & Performance
+
+### Performance Budget
+
+| Metric | Target |
+|--------|--------|
+| First Paint | <300ms |
+| Time to Interactive | <800ms |
+| Node hover response | <16ms (60fps) |
+| Bundle size (gzipped) | <400KB |
 
 ### Initialization Order
 
@@ -431,28 +422,32 @@ The page must feel instant. Render static UI before data:
    - Update node colors
    - Populate event lists
 
-### React Component Structure
+### Node Entrance Animation
 
-```
-App (routing, auth state)
-├── AuthScreen (Google sign-in)
-├── SharedCalendarView (public share)
-│   ├── Banner
-│   ├── Sidebar (read-only)
-│   └── RadialCalendar (read-only)
-└── CalendarApp (authenticated)
-    ├── Sidebar
-    │   ├── CalendarDropdown
-    │   └── EventCard[]
-    ├── RadialCalendar
-    │   ├── MonthDividers
-    │   ├── WeekNode[]
-    │   ├── MonthLabels
-    │   └── CenterHub
-    ├── Tooltip
-    ├── EventModal
-    └── ShareModal
-```
+On initial render, week nodes stagger-animate in with a bloom effect:
+- Each node starts at `scale(0)` and animates to `scale(1)`
+- Stagger: `nodeStaggerDelay` per node (8ms × 52 ≈ 416ms total spread)
+- Order: inner nodes first (week 1), outward to week 52
+- Duration: `nodeEntranceDuration` (400ms per node)
+- Easing: `nodeEntranceEasing` (expo-out)
+- Plays once on mount only, not on re-render or data updates
+- Implementation: CSS `animation-delay` computed from week index
+
+### Render Performance
+
+Only nodes affected by a data change should re-render — not all 52. Static elements (month dividers, month labels) never re-render after initial mount. Cache the events-by-week mapping so it only recomputes when the events array changes.
+
+### Font Loading
+
+Self-host Inter (woff2, weights 400/500/600/700) from `public/fonts/`. Preload weight 400 in HTML. No external font CDN requests.
+
+### Critical CSS
+
+Inline minimal CSS in `<head>`: body background color, font-family, text color, and the node entrance keyframe. Prevents flash of unstyled content on load.
+
+### Component Hierarchy
+
+The app has three top-level routes: auth screen, shared calendar view (public), and the main calendar app (authenticated). The main app splits into sidebar (event list, calendar switcher) and canvas (radial calendar with tooltip). Modals (event, share) overlay both.
 
 ### Error Handling
 
@@ -466,149 +461,20 @@ If Convex connection fails:
 
 ## 8. Progressive Web App
 
-### Manifest (`/manifest.json`)
+Installable PWA with standalone display. App name "Event Tracker 2026", theme color `textPrimary`, background color `surface`.
 
-```json
-{
-  "name": "Event Tracker 2026",
-  "short_name": "Tracker",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#F9FAFB",
-  "theme_color": "#111827",
-  "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
-  ]
-}
-```
+### Service Worker Strategy
 
-### Service Worker (`/sw.js`)
+Speed-focused, not offline-first:
 
-Minimal—enables PWA install, no caching:
+| Resource | Strategy |
+|----------|----------|
+| Fonts | Cache-first (immutable) |
+| App shell (HTML, JS, CSS) | Stale-while-revalidate |
+| Convex API / WebSocket | Pass-through (never cache) |
 
-```javascript
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', () => self.clients.claim());
-```
+On install: pre-cache static files, skip waiting. On activate: delete old caches, claim clients. No offline support, no background sync.
 
 ### Icons
 
-- `/icon-192.png` and `/icon-512.png`: Solid `textPrimary` color squares
-- Generated by server or static files in `public/`
-
-### HTML Head
-
-```html
-<meta name="theme-color" content="#111827">
-<link rel="manifest" href="/manifest.json">
-<link rel="apple-touch-icon" href="/icon-192.png">
-```
-
-### Registration
-
-```javascript
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js');
-}
-```
-
-### Features
-
-| Feature | Status |
-|---------|--------|
-| Add to Home Screen | Yes |
-| Standalone display | Yes |
-| Theme color | Yes |
-| Offline support | No |
-| Background sync | No |
-
----
-
-## 9. CSS Implementation Details
-
-### Node Hover Effect
-
-The stable hitbox pattern requires this CSS rule to apply hover transforms:
-
-```css
-.node-hitbox:hover .node-visual {
-  transform: scale(1.2);
-  stroke: #374151 !important;  /* borderDark */
-}
-```
-
-### Mobile View Toggle
-
-CSS classes control which panel is visible on mobile:
-
-```css
-@media (max-width: 1024px) {
-  .mobile-view-calendar .sidebar {
-    display: none;
-  }
-  .mobile-view-events .canvas {
-    display: none;
-  }
-  .mobile-view-events .sidebar {
-    width: 100%;
-    height: 100vh;
-  }
-}
-```
-
-### Mobile Modal (Full-Screen Takeover)
-
-On mobile, EventModal fills the screen instead of floating centered:
-
-```css
-@media (max-width: 1024px) {
-  .event-modal {
-    /* Override centered dialog — fill screen */
-    align-items: stretch !important;
-    justify-content: stretch !important;
-    padding: 0 !important;
-    background: white !important;
-    backdrop-filter: none !important;
-  }
-  .event-modal > div {
-    max-width: 100% !important;
-    min-height: 100dvh;
-    border-radius: 0 !important;
-    box-shadow: none !important;
-    overflow-y: auto;
-  }
-}
-```
-
-Input focus scrolling (in component):
-```typescript
-onFocus={(e) => {
-  setTimeout(() => {
-    e.target.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, 300); // Wait for keyboard animation
-}}
-```
-
-### Loading Spinner
-
-Used for auth and data loading states:
-
-```css
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-.animate-spin {
-  animation: spin 1s linear infinite;
-}
-```
-
-### Scrollbar Styling
-
-Subtle scrollbars for event lists:
-
-```css
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 3px; }
-```
+192px and 512px solid `textPrimary` color squares. Can be server-generated or static files.

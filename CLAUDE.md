@@ -22,38 +22,41 @@ This inverts the typical relationship:
 ### Workflow
 
 **Adding a new feature:**
-1. Discuss requirements with user
-2. Draft spec addition with precise details
-3. Update the appropriate spec file
-4. Implement code that matches spec exactly
+1. `/workshop <feature>` — explore ambiguity, draft spec update
+2. Apply the spec update
+3. `/implement` — build from specs
+
+**Fixed a bug or learned something:**
+1. `/spec_update <what changed>` — extract invariant, add to spec
 
 **Iterating on existing features:**
 1. Make changes in code to explore/prototype
-2. Once satisfied, extract changes back to spec
+2. `/spec_update` — extract learnings back to spec
 3. Spec becomes the permanent record
 
-**Full rebuild (periodic):**
+**Periodic maintenance:**
+1. `/spec_cleanup` — audit specs for drift, redundancy, code blocks
+
+**Full rebuild:**
 1. Delete implementation code (keep specs)
-2. Regenerate from specs
+2. `/implement` — regenerate from specs
 3. Verify behavior matches expectations
-4. If gaps found, update specs
+4. If gaps found, `/spec_update` to fix specs
 
 ### Spec Files
 
-| File | Purpose |
-|------|---------|
-| `specs/requirements.md` | User stories, target users, acceptance criteria |
-| `specs/constants.md` | All design tokens (colors, geometry, timing) |
-| `specs/data-model.md` | Database schema, types, access control |
-| `specs/manifest.md` | File list, build order, component interfaces |
-| `specs/frontend.md` | UI behavior, interactions, components |
-| `specs/backend.md` | Server, deployment, testing, infrastructure |
+| File | Purpose | Scope boundary |
+|------|---------|----------------|
+| `specs/requirements.md` | User stories, acceptance criteria, NFRs | What and why — never how |
+| `specs/constants.md` | Design tokens (colors, geometry, timing) | Values only — no behavior, no code |
+| `specs/data-model.md` | Schema, access control, security invariants | Data shape and rules — no implementation |
+| `specs/frontend.md` | UI behavior, interactions, layout, states | Observable behavior — no CSS/framework code |
+| `specs/backend.md` | Server, deployment, testing, infra | Architecture and gotchas — no inline code |
 
 **Hierarchy:**
 - `requirements.md` defines **what** and **why**
 - `constants.md` and `data-model.md` define **shared foundations**
 - `frontend.md` and `backend.md` define **how** (behavior)
-- `manifest.md` defines **structure** (files, build order, interfaces)
 
 ### Implementation Files
 
@@ -70,10 +73,20 @@ This inverts the typical relationship:
 
 ### When Implementing
 
-- **Follow `manifest.md` build order** — Dependencies before dependents
 - **Use token names from `constants.md`** — Not hardcoded values
 - **Match `data-model.md` exactly** — Schema is authoritative
 - **Reference `frontend.md` for behavior** — Not just what it looks like, but how it works
+- **Derive file structure from specs** — Don't ask for a file list; read the behavior and decide what files make sense
+
+### Spec Update Rules
+
+When updating specs after bug fixes or iteration:
+
+1. **Add invariants, not fixes** — "Hitbox dimensions must not change during hover" not the CSS that fixes it
+2. **No code blocks** — Describe algorithms and patterns in prose. Claude derives the implementation.
+3. **Each fact once** — If it's about data, it's in data-model.md. Don't repeat across files.
+4. **Verifiable from behavior** — Every spec line should be testable by using the app, not reading source
+5. **Use `/spec_cleanup` periodically** — Catches drift, redundancy, and implementation leaking into specs
 
 ---
 
