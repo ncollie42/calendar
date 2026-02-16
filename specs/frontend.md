@@ -105,6 +105,15 @@ Each month's spoke is at `month * 30 - 90` degrees (January at top). Nodes are d
 - **Cards**: Lift effect — `translateY(-1px)` + shadow increase (`shadow-sm` → `shadow-md`). Duration: `cardLiftDuration`.
 - **Transitions**: Bouncy easing (see `constants.md` Timing)
 
+### Animation Performance Constraints
+
+To preserve native-feel responsiveness, interaction-path animations must stay compositor-friendly:
+
+- Allowed in hot paths: `transform`, `opacity`
+- Avoid in hot paths: layout-affecting properties (`top`, `left`, `width`, `height`, `margin`, `padding`, `max-height`)
+- Avoid driving per-frame interactivity by repeatedly mutating expensive paint/layout properties
+- Hover, tooltip-follow, and node emphasis interactions should favor transform/opacity transitions
+
 ### Node Hover Stability
 
 Node hover effects must use a **stable hitbox pattern** to prevent flickering:
@@ -148,6 +157,8 @@ When week has multiple events, node shows highest priority:
 - Tapping the same node again does NOT dismiss (not a toggle)
 - Tapping a different node moves the tooltip to that node
 - Event creation via "Add Event" button only (node taps never open modal on touch)
+- Tooltip is read-only context for that week's schedule, not an event creation entry point
+- Touch-node interactions must never trigger create/edit modal open states
 
 **Touch vs click discrimination**: On touch devices, tapping a node must show tooltip without opening the modal. Use a touch-active flag: touch sets it, click checks it — if set from touch, suppress the modal. Tapping anywhere outside week nodes dismisses the tooltip (including areas outside the SVG canvas).
 
@@ -164,6 +175,16 @@ When week has multiple events, node shows highest priority:
 - Moving mouse within the same node (between child SVG elements) must NOT trigger hide
 
 **SVG tooltip delegation**: Use event delegation on the SVG parent (not individual nodes) with pointer events. When the pointer moves between child elements within the same node, the tooltip must NOT flicker — check that the pointer is actually leaving the node's hitbox, not just moving between its children. Track cursor position for desktop tooltip follow.
+
+**Single tooltip overlay invariant**:
+- Render exactly one tooltip overlay instance for the radial calendar
+- Reuse that single instance for all hovered/tapped weeks
+- Do not mount one tooltip per node
+
+**Pointer move update budget (desktop follow tooltip)**:
+- Pointer tracking must be `requestAnimationFrame`-throttled (max one visual update per frame)
+- Coalesce multiple raw pointer events into the next animation frame update
+- Do not trigger React state updates on every raw `pointermove` event
 
 ### Keyboard
 
@@ -436,6 +457,11 @@ On initial render, week nodes stagger-animate in with a bloom effect:
 ### Render Performance
 
 Only nodes affected by a data change should re-render — not all 52. Static elements (month dividers, month labels) never re-render after initial mount. Cache the events-by-week mapping so it only recomputes when the events array changes.
+
+**Static radial layer invariant**:
+- Radial geometry (month dividers, month labels, node positions/rotations) is precomputed and rendered once on mount
+- Data updates must not rebuild static geometry
+- Event changes should only update dynamic node visuals (fill, opacity, border emphasis) for affected weeks
 
 ### Font Loading
 

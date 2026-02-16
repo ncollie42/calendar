@@ -183,6 +183,10 @@ Acceptance criteria:
 **NFR-1: Performance**
 - Initial render under 500ms (empty calendar structure)
 - Data population under 1s on typical connection
+- Pointer-follow tooltip updates are frame-capped (max one visual update per animation frame)
+- Radial static geometry (month labels/dividers/node positions) remains stable across event data updates
+- Tooltip system uses a single reusable overlay instance (not one tooltip per node)
+- Interaction-path animations (hover/tooltip/node emphasis) rely on compositor-friendly properties (`transform`, `opacity`)
 
 **NFR-2: Accessibility**
 - Keyboard navigation for event creation (Cmd/Ctrl+K)
