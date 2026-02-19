@@ -51,8 +51,8 @@ Geometry values (radii, sizes, offsets) are defined in `constants.md`. This sect
 
 - SVG viewBox is fixed at 700×700, center at (350, 350)
 - **Responsive sizing**: Container uses CSS to scale proportionally
-  - Desktop (>1024px): `width: min(calc(100vh - 64px), 700px)`, centered in canvas area. Height is the primary size driver since desktop screens are landscape (32px effective margin top/bottom).
-  - Mobile (≤1024px): `width: min(100vw - 16px, 100vh - 16px)` to fit viewport (8px margin each side — SVG has internal padding so outer margin can be tight)
+  - Desktop (>1024px): scales to fill available canvas height (landscape screens are height-constrained), capped at the SVG viewBox size. Centered in canvas area.
+  - Mobile (≤1024px): scales to fill the viewport with an 8px margin on each side.
   - Aspect ratio maintained via `aspect-ratio: 1` on container
   - SVG fills container with `width: 100%; height: 100%`
 
@@ -86,14 +86,37 @@ Each month's spoke is at `month * 30 - 90` degrees (January at top). Nodes are d
 - Shadow: inset shadow + subtle ring (see `constants.md`)
 - Content:
   - Top line: "2026" (bold)
-  - Bottom line: "Week X of 52" (current week progress)
+  - Bottom line: hub language (see Hub Language Toggle below)
+- **Progress arc**: An SVG arc traces the inner edge of the hub, progressing clockwise from 12 o'clock. The arc represents `currentWeek / 52` of the full circle. A faint full-circle track shows the total year; the filled portion shows elapsed time. Uses `progressArcWidth` stroke, `textPrimary` color — track at low opacity, filled arc at stronger opacity. Renders behind the hub text, computed once on page load.
 
 **Hover-aware crossfade (desktop only):**
 - When user hovers any week node, the hub's "Week X of 52" text crossfades to show the hovered week number instead
 - Transition: `hubCrossfade` duration (200ms ease)
 - On mouse-out, crossfades back to actual current week
 - Mobile: no crossfade, hub stays static
-- Implementation: Hub receives optional `hoveredWeek` prop
+
+**Hub Language Toggle:**
+The hub's bottom line has two modes:
+- **Informational**: "Week X of 52"
+- **Emotional**: "X weeks remain"
+
+Clicking the hub cycles between modes. Active mode persists in localStorage key `hubLanguageMode`, defaulting to informational. Mode change transitions with `hubCrossfade` timing. The hover crossfade (hovered week number) still applies regardless of active mode.
+
+### Quarter Markers
+
+Tick marks appear at the radial positions of weeks 13, 26, and 39, perpendicular to their spoke, just beyond `outerRadius`. Each tick is `quarterTickLength` long, centered on the spoke. Style: `borderDark` at 40% opacity, `quarterTickWidth` stroke, `pointer-events: none`. Quarter marks are part of the static radial layer and never re-render.
+
+### Countdown Arcs
+
+When a user enables the countdown toggle on a scheduled event, an arc renders on the canvas outside the month labels:
+
+- **Path**: Sweeps clockwise from the current week's angular position to the event week's angular position
+- **Style**: Stroke in the event's priority color
+- **Destination marker**: A dot at the event week's angular position
+- **Label**: Weeks remaining, positioned near the destination marker
+- **Stacking**: Multiple active countdowns render at increasing radii outward — no arcs overlap
+
+Countdown state is stored in localStorage (key `countdownEvents`) as a set of event IDs. It is per-device and not part of the shared data model — members of a shared calendar each see only their own countdowns.
 
 ---
 
@@ -254,6 +277,22 @@ SharedCalendarView (public view via share token)
 ├── RadialCalendar (read-only)
 └── Event list (read-only)
 
+### Event Form
+
+**Header**: Title input sits alongside a live node preview — a rounded square in the selected priority color, sized to match a calendar node. Updates as priority changes, bridging the form visually to the calendar.
+
+**Week input**: Shows a contextual date range below the field using the existing format (`"Jan 5-11"` same-month, `"Dec 29 - Jan 4"` cross-month). Empty input shows an italic backlog hint.
+
+**Priority selector**: A row of mini node squares above text labels, matching calendar node appearance. Selected: solid fill. Unselected: outlined in priority color. Choosing priority is choosing a node color.
+
+**Notes field**: Collapsed behind a "+ Add notes" link by default. Expands to a textarea on click. Pre-expanded if the event already has a description.
+
+**Countdown toggle**: Visible only on scheduled events (week ≠ null). Toggle switch labeled "Countdown" with subtext "Show arc on calendar". State is per-device (localStorage) — not shared across calendar members. See Countdown Arcs.
+
+**Delete button**: `textMuted` color at rest, transitions to red on hover.
+
+**Save/Create button**: 50% opacity when disabled (empty title). Full opacity when actionable.
+
 ### Share Link UX
 
 **ShareModal behavior:**
@@ -306,7 +345,7 @@ After SharedCalendarView loads successfully, replace the URL to remove the token
 ### Collapsible Sections
 
 - Click header to toggle; chevron rotates 180°
-- Transition: `max-height` with collapse timing from `constants.md`
+- Transition: animated expand/collapse using `collapseTransition` timing from `constants.md`
 - Count badge: `borderLight` background, `textMuted` text, rounded-full
 - State persisted in localStorage key `sidebarCollapseState`
 - Sections collapse independently
@@ -390,6 +429,7 @@ Each view transition creates exactly one history entry. Repeated actions are no-
   - Browser back (`popstate`): entry already popped, only update React state
 - Never call `history.back()` from within a `popstate` handler — the entry is already gone
 - `popstate` listener sets view based on `event.state`, does not push/replace
+- The AccountBar and BottomBar must never overlap — the sidebar layout must reserve clearance below the AccountBar equal to the BottomBar pill height so both remain fully visible and accessible
 
 **Mobile visual adjustments**:
 - Hide priority legend
@@ -452,7 +492,6 @@ On initial render, week nodes stagger-animate in with a bloom effect:
 - Duration: `nodeEntranceDuration` (400ms per node)
 - Easing: `nodeEntranceEasing` (expo-out)
 - Plays once on mount only, not on re-render or data updates
-- Implementation: CSS `animation-delay` computed from week index
 
 ### Render Performance
 

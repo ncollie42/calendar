@@ -78,6 +78,29 @@ This inverts the typical relationship:
 - **Reference `frontend.md` for behavior** — Not just what it looks like, but how it works
 - **Derive file structure from specs** — Don't ask for a file list; read the behavior and decide what files make sense
 
+### What Belongs in a Spec
+
+Specs contain two kinds of knowledge. Implementation details belong in neither.
+
+| Tier | Verifiable by | Lives in |
+|------|--------------|----------|
+| **Observable behavior** | Using the app | `requirements.md`, domain specs |
+| **Design constraints** | Understanding the architecture | `frontend.md`, `backend.md` |
+| **Implementation details** | Reading source code | Nowhere — derives from the above |
+
+**Observable behavior**: What a user can see or do. "Past weeks render at reduced opacity." "Tooltip appears on hover." If the app worked differently, a user would notice.
+
+**Design constraints**: Architectural decisions that aren't visible to users but constrain implementation in important ways. "One tooltip overlay instance serves all week nodes." "Static radial geometry never re-renders on data updates." Removing these would cause Claude to make a different (valid but wrong) architectural choice.
+
+**Implementation details**: Names specific code constructs — CSS properties, React APIs, library calls. "Use `transform` and `opacity`." "Pass `hoveredWeek` as a prop." These derive naturally from the above two tiers and don't need to be specified.
+
+**Three tests for any spec line:**
+1. **App test** — Can you verify this by using the app? If yes, it's observable behavior. Keep it.
+2. **Info test** — Would removing this cause Claude to make a different architectural choice? If yes, it's a design constraint. Keep it in the right file.
+3. **Home test** — Is this in the right file? Design constraints belong in `frontend.md`/`backend.md`, not `requirements.md`. The right answer is sometimes "move it", not "cut it."
+
+If a line fails all three tests, cut it.
+
 ### Spec Update Rules
 
 When updating specs after bug fixes or iteration:

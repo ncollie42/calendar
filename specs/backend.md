@@ -66,16 +66,9 @@ Build script uses content hashing for JS bundles (e.g. `main.a1b2c3.js`). After 
 |----------|--------|---------|
 | `/fonts/*` | GET | Self-hosted Inter font files (woff2) |
 
-### Dynamic Icon Generation
+### Icon Generation
 
-PWA icons generated at runtime using raw PNG construction:
-
-1. PNG signature: `[137, 80, 78, 71, 13, 10, 26, 10]`
-2. IHDR chunk: width/height as 32-bit big-endian, bit depth 8, color type 2 (RGB)
-3. IDAT chunk: `Bun.deflateSync()` to compress raw pixel data
-4. CRC32 checksum for each chunk
-
-Alternative: Static PNG files in `public/`.
+PWA icons at 192×192 and 512×512, solid `textPrimary` fill. Serve as static files from `public/` or generate at request time.
 
 ### Development Hot Reload
 

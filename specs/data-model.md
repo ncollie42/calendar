@@ -84,7 +84,6 @@ Links users to calendars with role.
 | `week` | `number \| null` | yes | 1-52 = scheduled, null = backlog |
 | `priority` | `Priority` | yes | See below |
 | `description` | `string` | no | Optional details |
-| `participants` | `Id<"users">[]` | no | Future: assigned users |
 | `createdBy` | `Id<"users">` | yes | Creator reference |
 | `createdAt` | `number` | yes | Unix timestamp (ms) |
 

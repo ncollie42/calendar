@@ -60,7 +60,6 @@ This enables Tailwind utilities like `bg-surface`, `text-text-primary`, `border-
 major → big → medium → minor
 ```
 
-When a week has multiple events, the node displays the highest priority color.
 
 ---
 
@@ -96,6 +95,16 @@ When a week has multiple events, the node displays the highest priority color.
 | Token | Value | Notes |
 |-------|-------|-------|
 | `hubRadius` | `56` | Hub is 112px diameter (56px radius) |
+| `progressArcWidth` | `3` | Stroke width for year progress arc (SVG units) |
+
+### Quarter Markers
+
+| Token | Value | Notes |
+|-------|-------|-------|
+| `quarterWeeks` | `[13, 26, 39]` | Week indices marking Q1/Q2/Q3 boundaries |
+| `quarterTickLength` | `12` | Tick mark length (SVG units) |
+| `quarterTickWidth` | `1.5` | Stroke width (SVG units) |
+| `quarterTickOffset` | `8` | Distance past `outerRadius` to center the tick |
 
 ---
 
@@ -165,9 +174,7 @@ When a week has multiple events, the node displays the highest priority color.
 
 ### Mobile Safe Areas
 
-```css
-bottom: max(1.5rem, env(safe-area-inset-bottom) + 1rem)
-```
+Bottom bar offset: `1.5rem` minimum, or `env(safe-area-inset-bottom) + 1rem` on devices with a home indicator.
 
 ---
 
